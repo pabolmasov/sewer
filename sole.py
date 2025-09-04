@@ -20,8 +20,11 @@ from matplotlib.pyplot import *
     
 cmap = 'viridis'
 
-from scipy.fft import fft, ifft, fftfreq, fft2
+from scipy.fft import fft, ifft, fftfreq, fft2, fftshift
 # from scipy.signal import correlate
+
+# HDF5 io:
+import hio
 
 # simulating a wave moving to the right along z in pair relativistic plasma
 # E, B, and v are allowed to have all the three components
@@ -30,7 +33,7 @@ from scipy.fft import fft, ifft, fftfreq, fft2
 ifmatter = True
 
 # mesh:
-nz = 4096
+nz = 1028
 zlen = 25.
 z = (arange(nz) / double(nz) - 0.5) * zlen
 dz = z[1] - z[0]
@@ -38,8 +41,9 @@ dz = z[1] - z[0]
 # time
 # t = 0.
 dt = dz * 0.5 # CFL in 1D should be not very small
-tmax = 60.
+tmax = 10.
 dtout = 0.01
+picture_alias = 10
 
 # initial conditions (circularly polirized wave)
 z0 = 2.0
@@ -59,6 +63,62 @@ ux0 = 0. * z
 uy0 = 0. * z
 uz0 = 0. * z
 n0 = ones(nz) * 1.0 # density ; let us keep it unity, meaning time is in omega_p units. Lengths are internally in c/f = 2pi c / omega units, that allows a simpler expression for d/dz 
+
+def show_nukeplane():
+
+    nu, k, datalist = hio.okplane_hread('okplane_Bx.hdf', datanames = ['Bx'])
+    bxlist_FF =  datalist[0][:,:]
+    print(type(bxlist_FF[0,0]))
+    print(type(nu[0]))
+    print(type(k[0]))
+
+    print(nu)
+    
+    babs = sqrt(bxlist_FF.real**2 + bxlist_FF.imag**2)
+    # fftshift(nu)
+    # fftshift(k)
+    babs = log10(ma.masked_array(babs, mask = (babs <= 0.)))
+    
+    clf()
+    fig = figure()
+    # pcolormesh(tlist, f/2./pi, transpose(Fbxlist.real), shading='nearest', vmin = -10, vmax = 10)
+    pcolormesh(nu, k, transpose(babs), vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max())
+    # pcolormesh(ofreq[:nthalf], f[:nzhalf]/2./pi, transpose(babs)[:nzhalf, :nthalf], vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max(), shading='nearest')
+    # pcolormesh(ofreq[nthalf:], f[:nzhalf]/2./pi, transpose(babs)[:nzhalf, nthalf:], vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max(), shading='nearest')
+    # pcolormesh(ofreq[:nthalf], f[nzhalf:]/2./pi, transpose(babs)[nzhalf:, :nthalf], vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max(), shading='nearest')
+    # pcolormesh(ofreq[nthalf:], f[nzhalf:]/2./pi, transpose(babs)[nzhalf:, nthalf:], vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max(), shading='nearest')
+    cb = colorbar()
+    cb.set_label(r'$\log_{10} |\tilde{b}_x|$')
+    plot([-f0], [ f0], 'ro', mfc='none')
+    plot([f0], [ -f0], 'ro', mfc='none')
+
+    ktmp = 20.*f0 * (arange(100)/double(100)-0.5)
+
+    plot(ktmp/2./pi, ktmp/2./pi, 'w--')
+    plot(-ktmp/2./pi, ktmp/2./pi, 'w--')
+    plot(ktmp/2./pi, -ktmp/2./pi, 'w--')
+    plot(-ktmp/2./pi, -ktmp/2./pi, 'w--')    
+    
+    if abs(bbgdz)>0.01:
+        # circularly polarized components
+        plot(ktmp/2./pi, (ktmp - 1./(ktmp+bbgdz))/2./pi, 'b:')
+        plot(ktmp/2./pi, (ktmp - 1./(ktmp-bbgdz))/2./pi, 'r:')        
+        plot(ktmp/2./pi, -(ktmp - 1./(ktmp+bbgdz))/2./pi, 'r:')
+        plot(ktmp/2./pi, -(ktmp - 1./(ktmp-bbgdz))/2./pi, 'b:')        
+    else:
+        plot(sqrt(1.+ktmp**2)/2./pi, ktmp/2./pi, 'w:')
+        plot(-sqrt(1.+ktmp**2)/2./pi, ktmp/2./pi, 'w:')
+        plot(sqrt(1.+ktmp**2)/2./pi, -ktmp/2./pi, 'w:')
+        plot(-sqrt(1.+ktmp**2)/2./pi, -ktmp/2./pi, 'w:')
+                
+    xlim(-2. * f0 , 2. * f0 )
+    ylim(-2. * f0, 2. * f0)
+    
+    #    xlim(1./tmax, 1./dtout)  ;  ylim(1./zlen, 1./dz)
+    fig.set_size_inches(15.,10.)
+    xlabel(r'$\nu$') ; ylabel(r'$k$')    
+    savefig('okplane.png')
+         
 
 def circorrelate(x, y):
 
@@ -157,15 +217,16 @@ def sewerrun():
         if t > (tstore + dtout):
             print("t = ", t)
 
-            # Fourier spectrum:
-            clf()
-            plot(f/2./pi, F_bx.real, 'k.')
-            plot(f/2./pi, F_bx.imag, 'gx')
-            plot([f0, f0], [0.,sqrt(F_bx.real**2 + F_bx.imag**2).max()], 'r-')
-            plot([-f0, -f0], [0.,sqrt(F_bx.real**2 + F_bx.imag**2).max()], 'r-')
-            xlim(-2.*f0, 2.* f0)
-            xlabel(r'$f$')  ;   ylabel(r'$\tilde b_x$')
-            savefig('f{:05d}.png'.format(ctr))
+            if ctr%picture_alias==0:
+                # Fourier spectrum:
+                clf()
+                plot(f/2./pi, F_bx.real, 'k.')
+                plot(f/2./pi, F_bx.imag, 'gx')
+                plot([f0, f0], [0.,sqrt(F_bx.real**2 + F_bx.imag**2).max()], 'r-')
+                plot([-f0, -f0], [0.,sqrt(F_bx.real**2 + F_bx.imag**2).max()], 'r-')
+                xlim(-2.*f0, 2.* f0)
+                xlabel(r'$f$')  ;   ylabel(r'$\tilde b_x$')
+                savefig('f{:05d}.png'.format(ctr))
 
             # print(F_bx.real.max(), F_bx.real.min())
             ax = ifft(F_ax) ;    ay = ifft(F_ay)  ;    az = ifft(F_az)
@@ -183,49 +244,48 @@ def sewerrun():
                 fout.write(str(t) + ' ' + str(z[k]) + str(bx[k])+'\n')
             fout.flush()
             
-            # add a Fourier map
-            
-            clf()
-            fig, axes = subplots(5)
-            # print(shape(z), shape(ax))
-            axes[0].plot((z+zlen/2.+t)%zlen-zlen/2., ax0, 'r.')
-            axes[0].plot(z, ax, 'k-')
-            axes[1].plot((z+zlen/2.+t)%zlen-zlen/2., ay0, 'r.')
-            axes[1].plot(z, ay, 'k-')
-            axes[2].plot((z+zlen/2.+t)%zlen-zlen/2., az0, 'r.')
-            axes[2].plot(z, az, 'k-')
-            axes[3].plot((z+zlen/2.+t)%zlen-zlen/2., bx0, 'r.')
-            axes[3].plot(z, bx, 'k-')
-            axes[4].plot((z+zlen/2.+t)%zlen-zlen/2., by0, 'r.')
-            axes[4].plot(z, by, 'k-')
-            axes[0].set_ylabel(r'$a_x$')
-            axes[1].set_ylabel(r'$a_y$')
-            axes[2].set_ylabel(r'$a_z$')
-            axes[3].set_ylabel(r'$b_x$')
-            axes[4].set_ylabel(r'$b_y$')
-            axes[4].set_xlabel(r'$z$')  
-            # legend()
-            axes[0].set_title(r'$t = '+str(round(t))+'$')
-            fig.set_size_inches(12.,10.)
-            savefig('EB{:05d}.png'.format(ctr))
-            clf()
-            plot(z, uz, 'k-', label = r'$u^z$')
-            plot(z, ux, 'r:', label = r'$u^x$')
-            plot(z, uy, 'g--', label = r'$u^y$')
-            xlabel(r'$z$')  ;   ylabel(r'$u^i$') 
-            legend()
-            title(r'$t = '+str(round(t))+'$')
-            fig.set_size_inches(12.,5.)
-            savefig('u{:05d}.png'.format(ctr))
-            clf()
-            plot(z, n, 'k-', label = r'$n$')
-            xlabel(r'$z$')  ;   ylabel(r'$n$') 
-            #        legend()
-            title(r'$t = '+str(round(t))+'$')
-            fig.set_size_inches(12.,5.)
-            savefig('n{:05d}.png'.format(ctr))
-            
-            close()
+            if ctr%picture_alias==0:
+                clf()
+                fig, axes = subplots(5)
+                # print(shape(z), shape(ax))
+                axes[0].plot((z+zlen/2.+t)%zlen-zlen/2., ax0, 'r.')
+                axes[0].plot(z, ax, 'k-')
+                axes[1].plot((z+zlen/2.+t)%zlen-zlen/2., ay0, 'r.')
+                axes[1].plot(z, ay, 'k-')
+                axes[2].plot((z+zlen/2.+t)%zlen-zlen/2., az0, 'r.')
+                axes[2].plot(z, az, 'k-')
+                axes[3].plot((z+zlen/2.+t)%zlen-zlen/2., bx0, 'r.')
+                axes[3].plot(z, bx, 'k-')
+                axes[4].plot((z+zlen/2.+t)%zlen-zlen/2., by0, 'r.')
+                axes[4].plot(z, by, 'k-')
+                axes[0].set_ylabel(r'$a_x$')
+                axes[1].set_ylabel(r'$a_y$')
+                axes[2].set_ylabel(r'$a_z$')
+                axes[3].set_ylabel(r'$b_x$')
+                axes[4].set_ylabel(r'$b_y$')
+                axes[4].set_xlabel(r'$z$')  
+                # legend()
+                axes[0].set_title(r'$t = '+str(round(t))+'$')
+                fig.set_size_inches(12.,10.)
+                savefig('EB{:05d}.png'.format(ctr))
+                clf()
+                plot(z, uz, 'k-', label = r'$u^z$')
+                plot(z, ux, 'r:', label = r'$u^x$')
+                plot(z, uy, 'g--', label = r'$u^y$')
+                xlabel(r'$z$')  ;   ylabel(r'$u^i$') 
+                legend()
+                title(r'$t = '+str(round(t))+'$')
+                fig.set_size_inches(12.,5.)
+                savefig('u{:05d}.png'.format(ctr))
+                clf()
+                plot(z, n, 'k-', label = r'$n$')
+                xlabel(r'$z$')  ;   ylabel(r'$n$') 
+                #        legend()
+                title(r'$t = '+str(round(t))+'$')
+                fig.set_size_inches(12.,5.)
+                savefig('n{:05d}.png'.format(ctr))               
+                close()
+                
             tlist.append(t)
             bxlist.append(bx.real)
             Fbxlist.append(copy(F_bx))
@@ -251,82 +311,32 @@ def sewerrun():
     bxlist_FF = fft(Fbxlist, axis = 0) 
     ofreq = fftfreq(size(tlist), dtout)
 
+    print("omega = ", ofreq)
+    print("k = ", f/2./pi)
+    
+    bxlist_FF = fftshift(bxlist_FF)
+    ofreq = fftshift(ofreq)
+    f = fftshift(f)
+    
     # print("wavenumber shape = ", shape(f))
     # print("frequency shape = ", shape(ofreq))
     # print(shape(bxlist_FF))
     # ii = input('T')
 
-    nthalf = nt//2
-    nzhalf = nz//2
+    #    nthalf = nt//2
+    #    nzhalf = nz//2
 
-    # print(ofreq[:nthalf])
-    # print(f[:nzhalf])    
-
-    babs = sqrt(bxlist_FF.real**2 + bxlist_FF.imag**2)
-
-    babs = log10(ma.masked_array(babs, mask = (babs <= 0.)))
     
-    clf()
-    fig = figure()
-    # pcolormesh(tlist, f/2./pi, transpose(Fbxlist.real), shading='nearest', vmin = -10, vmax = 10)
-    # pcolormesh(ofreq, f/2./pi, transpose((bxlist_FF.real**2 + bxlist_FF.imag**2)))
-    pcolormesh(ofreq[:(nthalf+1)], f[:nzhalf]/2./pi, transpose(babs)[:nzhalf, :nthalf], vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max(), shading='nearest')
-    pcolormesh(ofreq[nthalf:], f[:nzhalf]/2./pi, transpose(babs)[:nzhalf, nthalf:], vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max(), shading='nearest')
-    pcolormesh(ofreq[:nthalf], f[nzhalf:]/2./pi, transpose(babs)[nzhalf:, :nthalf], vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max(), shading='nearest')
-    pcolormesh(ofreq[nthalf:], f[nzhalf:]/2./pi, transpose(babs)[nzhalf:, nthalf:], vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max(), shading='nearest')
-    cb = colorbar()
-    cb.set_label(r'$\log_{10} |\tilde{b}_x|$')
-    plot([-f0], [ f0], 'ro', mfc='none')
-    plot([f0], [ -f0], 'ro', mfc='none')
+    print("omega = ", ofreq)
+    print("k = ", f/2./pi)
 
-    ktmp = 15.*f0 * (arange(100)/double(100)-0.5)
-
-    plot(ktmp/2./pi, ktmp/2./pi, 'w--')
-    plot(-ktmp/2./pi, ktmp/2./pi, 'w--')
-    plot(ktmp/2./pi, -ktmp/2./pi, 'w--')
-    plot(-ktmp/2./pi, -ktmp/2./pi, 'w--')    
+    ii = input('T')
     
-    if abs(bbgd)>0.01:
-        # circularly polarized components
-        plot(ktmp/2./pi, (ktmp - 1./(ktmp+bbgd))/2./pi, 'b:')
-        plot(ktmp/2./pi, (ktmp - 1./(ktmp-bbgd))/2./pi, 'r:')        
-        plot(ktmp/2./pi, -(ktmp - 1./(ktmp+bbgd))/2./pi, 'r:')
-        plot(ktmp/2./pi, -(ktmp - 1./(ktmp-bbgd))/2./pi, 'b:')        
-    else:
-        plot(sqrt(1.+ktmp**2)/2./pi, ktmp/2./pi, 'w:')
-        plot(-sqrt(1.+ktmp**2)/2./pi, ktmp/2./pi, 'w:')
-        plot(sqrt(1.+ktmp**2)/2./pi, -ktmp/2./pi, 'w:')
-        plot(-sqrt(1.+ktmp**2)/2./pi, -ktmp/2./pi, 'w:')
+    # saving the data
+    hio.okplane_hout(ofreq, f/2./pi, bxlist_FF, hname = 'okplane_Bx.hdf', dataname = 'Bx')
 
-        
-        
-    xlim(-2. * f0 , 2. * f0 )
-    ylim(-2. * f0, 2. * f0)
+    show_nukeplane()
     
-    #    xlim(1./tmax, 1./dtout)  ;  ylim(1./zlen, 1./dz)
-    fig.set_size_inches(15.,10.)
-    xlabel(r'$\omega$') ; ylabel(r'$k$')    
-    savefig('okplane.png')
-    
-    
-    # cross-correlations
-    # print(shape(bx0), shape(bx))
-    #    ccor_bx = correlate(bx0, bx0, mode='full', method='fft')
-    # ddz = -(arange(2*nz-1)-double(nz))*dz
-    # print(shape(ccor_bx), shape(ddz))
-    # clf()
-    #for k in arange(nt//5)*5:
-    #     ccor_bx = circorrelate(bx0, bx0) #, mode='full') # , method='fft')         
-    #     plot(ddz-tlist[k] * 0., ccor_bx+tlist[k] * 0.1, 'k.')
-         # cmax = ccor_bx[(ddz > (tlist[k]-2.*pi/f0))&(ddz > (tlist[k]+2.*pi/f0))].max()
-         # plot([0., 0.], [cmax+tlist[k] * 0.1, cmax+tlist[k] * 0.1], 'rx')
-
-    # xlim( - dz * 100., dz * 100.)
-    # xlabel(r'$\Delta z$') ; ylabel(r'$C$')  
-    # savefig('ccor.png')
-
-    #     print(bxlist)
-     
     # 2D-visualization
     clf()
     pcolormesh(z, tlist, bxlist)
@@ -353,5 +363,5 @@ def sewerrun():
     
     close()
         
-
+    
 # ffmpeg -f image2 -r 20 -pattern_type glob -i 'EB*.png' -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2"  -pix_fmt yuv420p -b 8192k EB.mp4
