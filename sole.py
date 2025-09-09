@@ -84,8 +84,8 @@ def onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_ux, F_uy, F_uz, F_n, ifmatter):
     dF_az = 0. * n # - fft(n * uz) * complex(ifmatter) # other Maxwell
 
     # hydrodynamics
-    dF_ux = F_ax + fft( - vx * ifft(-1.j*f*F_ux) + vz * by - vy * by)
-    dF_uy = F_ay + fft( - vy * ifft(-1.j*f*F_uy) + vx * bz - vz * bx)
+    dF_ux = F_ax + fft( - vx * ifft(-1.j*f*F_ux) + vy * bz - vz * by)
+    dF_uy = F_ay + fft( - vy * ifft(-1.j*f*F_uy) + vz * bx - vx * bz)
     dF_uz = F_az + fft( - vz * ifft(-1.j*f*F_uz) + vx * by - vy * bx)
     dF_n = 1.j * f * fft(vz*n) # - fft(n / gamma**2 * (ax * ux + ay * uy + az * uz ))
 
@@ -244,6 +244,6 @@ def sewerrun():
 
     plots.show_nukeplane(f0 = f0)
     
-    plots.maps(tlist, bxlist, uzlist, nlist)
+    plots.maps(z, tlist, bxlist, uzlist, nlist, ctr)
     
 # ffmpeg -f image2 -r 20 -pattern_type glob -i 'EB*.png' -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2"  -pix_fmt yuv420p -b 8192k EB.mp4

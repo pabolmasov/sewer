@@ -1,12 +1,15 @@
 import matplotlib
 from matplotlib.pyplot import *
 
+# HDF5 io:
+import hio
+
 from numpy import *
 
 cmap = 'viridis'
 
 
-def show_nukeplane(f0 = 1.0):
+def show_nukeplane(f0 = 1.0, bgdfield = 0.):
 
     nu, k, datalist = hio.okplane_hread('okplane_Bx.hdf', datanames = ['Bx'])
     bxlist_FF =  datalist[0][:,:]
@@ -40,8 +43,8 @@ def show_nukeplane(f0 = 1.0):
     #plot(-ktmp/2./pi, ktmp/2./pi, 'w--')
     #plot(ktmp/2./pi, -ktmp/2./pi, 'w--')
     #plot(-ktmp/2./pi, -ktmp/2./pi, 'w--')    
-    '''
-    if abs(bbgdz)>0.01:
+    
+    if abs(bgdfield)>0.01:
         # circularly polarized components
         plot(ktmp/2./pi, (ktmp - 1./(ktmp+bbgdz))/2./pi, 'b:')
         plot(ktmp/2./pi, (ktmp - 1./(ktmp-bbgdz))/2./pi, 'r:')        
@@ -52,7 +55,6 @@ def show_nukeplane(f0 = 1.0):
         plot(-sqrt(1.+ktmp**2)/2./pi, ktmp/2./pi, 'w:')
         plot(sqrt(1.+ktmp**2)/2./pi, -ktmp/2./pi, 'w:')
         plot(-sqrt(1.+ktmp**2)/2./pi, -ktmp/2./pi, 'w:')
-    '''
     
     xlim(-2. * f0 , 2. * f0 )
     ylim(-2. * f0, 2. * f0)
@@ -77,9 +79,22 @@ def circorrelate(x, y):
 
     return r
 
-def maps(tlist, bxlist, uzlist, nlist):
+def maps(z, tlist, bxlist, uzlist, nlist, ctr):
+    s = shape(nlist)
+    print(s)
+    # if the two species are stored separately
+    if s[0] == 2:
+        nplist = nlist[0]
+        nelist = nlist[1]
+    s = shape(uzlist)
+    print(s)
+    # if the two species are stored separately
+    if s[0] == 2:
+        uzplist = uzlist[0]
+        uzelist = uzlist[1]
     # 2D-visualization
     clf()
+    fig = figure()
     pcolormesh(z, tlist, bxlist)
     colorbar()
     plot(z, z, 'w--')
@@ -89,22 +104,34 @@ def maps(tlist, bxlist, uzlist, nlist):
     savefig('EBmap.png'.format(ctr))
     
     clf()
-    pcolormesh(z, tlist, uzlist)
-    colorbar()
-    xlabel(r'$z$') ; ylabel(r'$t$')  
-    fig.set_size_inches(15.,10.)
+    fig, ax = subplots(ncols=2, figsize=(8, 4))
+    pc1 = ax[0].pcolormesh(z, tlist, uzplist)
+    fig.colorbar(pc1, ax = ax[0])
+    pc2 = ax[1].pcolormesh(z, tlist, uzelist)
+    fig.colorbar(pc2, ax = ax[1])
+    ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$t$')  
     savefig('uzmap.png'.format(ctr))
     
     clf()
-    pcolormesh(z, tlist, nlist)
-    colorbar()
-    xlabel(r'$z$') ; ylabel(r'$t$')  
-    fig.set_size_inches(15.,10.)
+    fig, ax = subplots(ncols=2, figsize=(8, 4))
+    pc1 = ax[0].pcolormesh(z, tlist, nplist)
+    fig.colorbar(pc1, ax = ax[0])
+    pc2 = ax[1].pcolormesh(z, tlist, nelist)
+    fig.colorbar(pc2, ax = ax[1])
+    ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$t$')  
     savefig('nmap.png'.format(ctr))
     
     close()
 
 def onthefly(z, zshift, ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, ux, uy, uz, n, ctr, t):
+
+    s = shape(n)
+    print(s)
+    # if the two species are stored separately
+    if s[0] == 2:
+        np = n[0]
+        ne = n[1]
+    
     clf()
     fig, axes = subplots(5)
     # print(shape(z), shape(ax))
@@ -138,9 +165,13 @@ def onthefly(z, zshift, ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, ux, uy, uz,
     fig.set_size_inches(12.,5.)
     savefig('u{:05d}.png'.format(ctr))
     clf()
-    plot(z, n, 'k-', label = r'$n$')
+    if s[0] == 2:
+        plot(z, np, 'k-', label = r'$n_+$')
+        plot(z, ne, 'r:', label = r'$n_-$')
+    else:
+        plot(z, n, 'k-', label = r'$n$')
     xlabel(r'$z$')  ;   ylabel(r'$n$') 
-    #        legend()
+    legend()
     title(r'$t = '+str(round(t))+'$')
     fig.set_size_inches(12.,5.)
     savefig('n{:05d}.png'.format(ctr))               

@@ -54,14 +54,14 @@ picture_alias = 10
 z0 = 5.0
 f0 = 2.0
 amp0 = 0.01
-bbgdx = 0.0  ; bbgdy = 0.0 ; bbgdz = 0.1
-bx0 = sin(2. * pi * f0 * z) * exp(-(z/z0)**6/2. * 0.) * amp0 + bbgdx
-by0 =  - cos(2. * pi * f0 * z) * exp(-(z/z0)**6/2. * 0.) * amp0 * 0. + bbgdy
+bbgdx = 0.0  ; bbgdy = 0.0 ; bbgdz = 0.0
+bx0 = sin(2. * pi * f0 * z) * exp(-(z/z0)**6/2.) * amp0 + bbgdx
+by0 =  - cos(2. * pi * f0 * z) * exp(-(z/z0)**6/2.) * amp0 * 0. + bbgdy
 bz0 = z *  0. + bbgdz
 bz = bz0
 
-ax0 = cos(2. * pi * f0 * z) * exp(-(z/z0)**6/2. * 0.) * amp0 * 0.
-ay0 =  sin(2. * pi * f0 * z) * exp(-(z/z0)**6/2. * 0.) * amp0
+ax0 = cos(2. * pi * f0 * z) * exp(-(z/z0)**6/2.) * amp0 * 0.
+ay0 =  sin(2. * pi * f0 * z) * exp(-(z/z0)**6/2.) * amp0
 az0 = z * 0.
 # 4-velocity
 ux0p = 0. * z
@@ -104,12 +104,12 @@ def onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_uxp, F_uyp, F_uzp, F_np, F_uxe, F
     dF_az =   - fft(jz) * complex(ifmatter) # other Maxwell
 
     # hydrodynamics
-    dF_uxp = F_ax + fft( -vxp * ifft(-1.j*f*F_uxp) + vzp * by - vyp * by)
-    dF_uyp = F_ay + fft( -vyp * ifft(-1.j*f*F_uyp) + vxp * bz - vzp * bx)
+    dF_uxp = F_ax + fft( -vxp * ifft(-1.j*f*F_uxp) + vyp * bz - vzp * by)
+    dF_uyp = F_ay + fft( -vyp * ifft(-1.j*f*F_uyp) + vzp * bx - vxp * bz)
     dF_uzp = F_az + fft( -vzp * ifft(-1.j*f*F_uzp) + vxp * by - vyp * bx)
     dF_np = 1.j * f * fft(vzp*np) 
-    dF_uxe = -F_ax + fft( -vxe * ifft(-1.j*f*F_uxe) + vze * by - vye * by)
-    dF_uye = -F_ay + fft( -vye * ifft(-1.j*f*F_uye) + vxe * bz - vze * bx)
+    dF_uxe = -F_ax + fft( -vxe * ifft(-1.j*f*F_uxe) + vye * bz - vze * by)
+    dF_uye = -F_ay + fft( -vye * ifft(-1.j*f*F_uye) + vze * bx - vxe * bz)
     dF_uze = -F_az + fft( -vze * ifft(-1.j*f*F_uze) + vxe * by - vye * bx)
     dF_ne = 1.j * f * fft(vze * ne) 
 
@@ -146,7 +146,7 @@ def sewerrun2():
     tlist = []
     bxlist = []
     Fbxlist = []
-    uzlist = []
+    uzplist = [] ; uzelist = []
     nplist = [] ;   nelist = []
     
     # hyperdiffusion core
@@ -222,13 +222,14 @@ def sewerrun2():
             fout.flush()
             
             if ctr%picture_alias==0:
-                plots.onthefly(z, (z+zlen/2.+t)%zlen-zlen/2., ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, uxp, uyp, uzp, np/gammap-ne/gammae, ctr, t)
+                plots.onthefly(z, (z+zlen/2.+t)%zlen-zlen/2., ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, uxp, uyp, uzp, (np/gammap,ne/gammae), ctr, t)
                 
             tlist.append(tstore)
             bxlist.append(bx_prev.real + ((tstore-(t-dt))/dt) * (bx-bx_prev).real)
             Fbxlist.append(F_bx_prev + ((tstore-(t-dt))/dt) * (F_bx-F_bx_prev))
             # print(len(Fbxlist))
-            uzlist.append(uzp_prev.real +  ((tstore-(t-dt))/dt) * (uzp-uzp_prev).real)
+            uzplist.append(uzp_prev.real +  ((tstore-(t-dt))/dt) * (uzp-uzp_prev).real)
+            uzelist.append(uze_prev.real +  ((tstore-(t-dt))/dt) * (uze-uze_prev).real)
             nplist.append((np_prev/gammap_prev).real +  ((tstore-(t-dt))/dt) * (np/gammap - np_prev/gammap_prev).real)
             nelist.append((ne_prev/gammae_prev).real +  ((tstore-(t-dt))/dt) * (ne/gammae - ne_prev/gammae_prev).real)
             tstore += dtout
@@ -239,7 +240,8 @@ def sewerrun2():
     tlist = asarray(tlist)
     bxlist = asarray(bxlist)
     Fbxlist = asarray(Fbxlist, dtype = complex)
-    uzlist = asarray(uzlist).real
+    uzplist = asarray(uzplist).real
+    uzelist = asarray(uzelist).real
     nplist = asarray(nplist).real
     nelist = asarray(nelist).real
 
@@ -284,6 +286,6 @@ def sewerrun2():
     # saving the data
     hio.okplane_hout(ofreq, f/2./pi, bxlist_FF, hname = 'okplane_Bx.hdf', dataname = 'Bx')
 
-    plots.show_nukeplane(f0 = f0)
-    plots.maps(tlist, bxlist, uzlist, nplist)
+    plots.show_nukeplane(f0 = f0, bgdfield = bbgdz)
+    plots.maps(z, tlist, bxlist, (uzplist, uzelist), (nplist, nelist), ctr)
  
