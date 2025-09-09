@@ -15,48 +15,48 @@ import h5py
 
 from os.path import exists
 
-import matplotlib
-from matplotlib.pyplot import *
-    
-cmap = 'viridis'
-
 from scipy.fft import fft, ifft, fftfreq, fft2, fftshift
 # from scipy.signal import correlate
 
 # HDF5 io:
 import hio
 
+# plotting
+import plots
+
 # simulating a wave moving to the right along z in pair relativistic plasma
 # E, B, and v are allowed to have all the three components
 
 # physical switches:
 ifmatter = True
+ifonedirection = True
 
 # mesh:
-nz = 1028
-zlen = 25.
+nz = 4096
+zlen = 20.
 z = (arange(nz) / double(nz) - 0.5) * zlen
 dz = z[1] - z[0]
+print("dz = ", dz)
 
 # time
 # t = 0.
 dt = dz * 0.5 # CFL in 1D should be not very small
-tmax = 10.
+tmax = 20.
 dtout = 0.01
 picture_alias = 10
 
 # initial conditions (circularly polirized wave)
-z0 = 2.0
-f0 = 0.5
+z0 = 5.0
+f0 = 2.0
 amp0 = 0.01
-bbgdx = 0.0  ; bbgdy = 0.0 ; bbgdz = 0.0
-bx0 = sin(2. * pi * f0 * z) * exp(-(z/z0)**6/2.) * amp0 + bbgdx
-by0 =  - cos(2. * pi * f0 * z) * exp(-(z/z0)**6/2. ) * amp0 + bbgdy
+bbgdx = 0.0  ; bbgdy = 0.0 ; bbgdz = 0.1
+bx0 = sin(2. * pi * f0 * z) * exp(-(z/z0)**6/2. * 0.) * amp0 + bbgdx
+by0 =  - cos(2. * pi * f0 * z) * exp(-(z/z0)**6/2. * 0.) * amp0 * 0. + bbgdy
 bz0 = z *  0. + bbgdz
 bz = bz0
 
-ax0 = cos(2. * pi * f0 * z) * exp(-(z/z0)**6/2.) * amp0
-ay0 =  sin(2. * pi * f0 * z) * exp(-(z/z0)**6/2.) * amp0
+ax0 = cos(2. * pi * f0 * z) * exp(-(z/z0)**6/2. * 0.) * amp0 * 0.
+ay0 =  sin(2. * pi * f0 * z) * exp(-(z/z0)**6/2. * 0.) * amp0
 az0 = z * 0.
 # 4-velocity
 ux0 = 0. * z
@@ -64,76 +64,6 @@ uy0 = 0. * z
 uz0 = 0. * z
 n0 = ones(nz) * 1.0 # density ; let us keep it unity, meaning time is in omega_p units. Lengths are internally in c/f = 2pi c / omega units, that allows a simpler expression for d/dz 
 
-def show_nukeplane():
-
-    nu, k, datalist = hio.okplane_hread('okplane_Bx.hdf', datanames = ['Bx'])
-    bxlist_FF =  datalist[0][:,:]
-    print(type(bxlist_FF[0,0]))
-    print(type(nu[0]))
-    print(type(k[0]))
-
-    print(nu)
-    
-    babs = sqrt(bxlist_FF.real**2 + bxlist_FF.imag**2)
-    # fftshift(nu)
-    # fftshift(k)
-    babs = log10(ma.masked_array(babs, mask = (babs <= 0.)))
-    
-    clf()
-    fig = figure()
-    # pcolormesh(tlist, f/2./pi, transpose(Fbxlist.real), shading='nearest', vmin = -10, vmax = 10)
-    pcolormesh(nu, k, transpose(babs), vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max())
-    # pcolormesh(ofreq[:nthalf], f[:nzhalf]/2./pi, transpose(babs)[:nzhalf, :nthalf], vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max(), shading='nearest')
-    # pcolormesh(ofreq[nthalf:], f[:nzhalf]/2./pi, transpose(babs)[:nzhalf, nthalf:], vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max(), shading='nearest')
-    # pcolormesh(ofreq[:nthalf], f[nzhalf:]/2./pi, transpose(babs)[nzhalf:, :nthalf], vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max(), shading='nearest')
-    # pcolormesh(ofreq[nthalf:], f[nzhalf:]/2./pi, transpose(babs)[nzhalf:, nthalf:], vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max(), shading='nearest')
-    cb = colorbar()
-    cb.set_label(r'$\log_{10} |\tilde{b}_x|$')
-    plot([-f0], [ f0], 'ro', mfc='none')
-    plot([f0], [ -f0], 'ro', mfc='none')
-
-    ktmp = 20.*f0 * (arange(100)/double(100)-0.5)
-
-    plot(ktmp/2./pi, ktmp/2./pi, 'w--')
-    plot(-ktmp/2./pi, ktmp/2./pi, 'w--')
-    plot(ktmp/2./pi, -ktmp/2./pi, 'w--')
-    plot(-ktmp/2./pi, -ktmp/2./pi, 'w--')    
-    
-    if abs(bbgdz)>0.01:
-        # circularly polarized components
-        plot(ktmp/2./pi, (ktmp - 1./(ktmp+bbgdz))/2./pi, 'b:')
-        plot(ktmp/2./pi, (ktmp - 1./(ktmp-bbgdz))/2./pi, 'r:')        
-        plot(ktmp/2./pi, -(ktmp - 1./(ktmp+bbgdz))/2./pi, 'r:')
-        plot(ktmp/2./pi, -(ktmp - 1./(ktmp-bbgdz))/2./pi, 'b:')        
-    else:
-        plot(sqrt(1.+ktmp**2)/2./pi, ktmp/2./pi, 'w:')
-        plot(-sqrt(1.+ktmp**2)/2./pi, ktmp/2./pi, 'w:')
-        plot(sqrt(1.+ktmp**2)/2./pi, -ktmp/2./pi, 'w:')
-        plot(-sqrt(1.+ktmp**2)/2./pi, -ktmp/2./pi, 'w:')
-                
-    xlim(-2. * f0 , 2. * f0 )
-    ylim(-2. * f0, 2. * f0)
-    
-    #    xlim(1./tmax, 1./dtout)  ;  ylim(1./zlen, 1./dz)
-    fig.set_size_inches(15.,10.)
-    xlabel(r'$\nu$') ; ylabel(r'$k$')    
-    savefig('okplane.png')
-         
-
-def circorrelate(x, y):
-
-    meanx = x.mean() ; meany = y.mean()
-    stdx = x.std() ; stdy = y.std()
-    
-    nx = size(x)
-    r = zeros(nx*2-1)
-    
-    for k in arange(nx*2-1, dtype = int)-nx:
-        y1 = roll(x, k)
-        r[k] = ((x-meanx)*(y1-meany)).sum()/stdx/stdy
-
-    return r
-        
 def onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_ux, F_uy, F_uz, F_n, ifmatter):
     # one RK4 step
     # avoid interference with the globals!
@@ -142,22 +72,22 @@ def onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_ux, F_uy, F_uz, F_n, ifmatter):
     ax = ifft(F_ax) ;    ay = ifft(F_ay) ;    az = ifft(F_az)
     bx = ifft(F_bx) ;    by = ifft(F_by) # ;    bz = ifft(F_bz)
     ux = ifft(F_ux) ;    uy = ifft(F_uy) ;    uz = ifft(F_uz)
-    n = ifft(F_n)
+    n = ifft(F_n) # n is n gamma
     gamma = sqrt(1.+ux**2+uy**2+uz**2)
     vx = ux/gamma ; vy = uy/gamma ; vz = uz/gamma
     
     # Maxwell equations:
     dF_bx = -1.j * f * F_ay # one Maxwell
     dF_by = 1.j * f * F_ax # one Maxwell
-    dF_ax = 1.j * f * F_by  - fft(n * ux) * complex(ifmatter) # other Maxwell
-    dF_ay = -1.j * f * F_bx - fft(n * uy) * complex(ifmatter) # other Maxwell
-    dF_az = - fft(n * uz) * complex(ifmatter) # other Maxwell
+    dF_ax = 1.j * f * F_by  - fft(n * vx) * complex(ifmatter) # other Maxwell
+    dF_ay = -1.j * f * F_bx - fft(n * vy) * complex(ifmatter) # other Maxwell
+    dF_az = 0. * n # - fft(n * uz) * complex(ifmatter) # other Maxwell
 
     # hydrodynamics
-    dF_ux = F_ax + fft( -ifft(-1.j*f*F_ux) + vz * by - vy * by)
-    dF_uy = F_ay + fft( -ifft(-1.j*f*F_uy) + vx * bz - vz * bx)
-    dF_uz = F_az + fft( -ifft(-1.j*f*F_uz) + vx * by - vy * bx)
-    dF_n = 1.j * f * fft(vz*n) - fft(n / gamma**2 * (ax * ux + ay * uy + az * uz ))
+    dF_ux = F_ax + fft( - vx * ifft(-1.j*f*F_ux) + vz * by - vy * by)
+    dF_uy = F_ay + fft( - vy * ifft(-1.j*f*F_uy) + vx * bz - vz * bx)
+    dF_uz = F_az + fft( - vz * ifft(-1.j*f*F_uz) + vx * by - vy * bx)
+    dF_n = 1.j * f * fft(vz*n) # - fft(n / gamma**2 * (ax * ux + ay * uy + az * uz ))
 
     return dF_ax, dF_ay, dF_az, dF_bx, dF_by, dF_ux, dF_uy, dF_uz, dF_n
 
@@ -177,6 +107,11 @@ def sewerrun():
     F_uz = fft(uz0)
     F_n  = fft(n0)
 
+    if ifonedirection:
+        # the square root is the correction for plasma dispersion
+        F_ay[abs(f)>0.] = 1. * copy(F_bx)[abs(f)>0.] * sqrt(1.+(2.*pi*f)**(-2))[abs(f)>0.]
+        F_ax[abs(f)>0.] = -1. * copy(F_by)[abs(f)>0.]  * sqrt(1.+(2.*pi*f)**(-2))[abs(f)>0.]
+            
     t = 0.
     ctr = 0
     tstore = 0.
@@ -189,13 +124,22 @@ def sewerrun():
     # hyperdiffusion core
     fsq = (f * conj(f)).real
     hyperpower = 4.0
-    hypercore = exp(-(fsq / (fsq.real).max() * (2.*pi)**2)**hyperpower * 3.) + 0.j
+    hypercore = exp(-(fsq / (fsq.real).max() * (2.*pi)**2)**hyperpower * 2.) + 0.j
 
     # print(f)
     fout = open('sewerout.dat', 'w+')
     fout.write('# t -- z -- Bx \n')
     
     while t < tmax:
+        if t > (tstore + dtout - dt):
+            # save previous values
+            F_bx_prev = F_bx
+            ax_prev = ifft(F_ax) ;    ay_prev = ifft(F_ay)  ;    az_prev = ifft(F_az)
+            bx_prev = ifft(F_bx) ;    by_prev = ifft(F_by)  # ;    bz = ifft(F_bz)
+            ux_prev = ifft(F_ux) ;    uy_prev = ifft(F_uy)  ;    uz_prev = ifft(F_uz)
+            n_prev = ifft(F_n)
+            gamma_prev = sqrt(1.+ux_prev**2+uy_prev**2+uz_prev**2)
+            
         # TODO: make it dictionaries or structures
     
         dF_ax1, dF_ay1, dF_az1, dF_bx1, dF_by1, dF_ux1, dF_uy1, dF_uz1, dF_n1 = onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_ux, F_uy, F_uz, F_n, ifmatter)
@@ -219,21 +163,14 @@ def sewerrun():
 
             if ctr%picture_alias==0:
                 # Fourier spectrum:
-                clf()
-                plot(f/2./pi, F_bx.real, 'k.')
-                plot(f/2./pi, F_bx.imag, 'gx')
-                plot([f0, f0], [0.,sqrt(F_bx.real**2 + F_bx.imag**2).max()], 'r-')
-                plot([-f0, -f0], [0.,sqrt(F_bx.real**2 + F_bx.imag**2).max()], 'r-')
-                xlim(-2.*f0, 2.* f0)
-                xlabel(r'$f$')  ;   ylabel(r'$\tilde b_x$')
-                savefig('f{:05d}.png'.format(ctr))
+                plots.fourier(f/2./pi, F_bx, f0, ctr)
 
             # print(F_bx.real.max(), F_bx.real.min())
             ax = ifft(F_ax) ;    ay = ifft(F_ay)  ;    az = ifft(F_az)
-            bx = ifft(F_bx) ;    by = ifft(F_by) # ;    bz = ifft(F_bz)
-            ux = ifft(F_ux) ;    uy = ifft(F_uy) ;    uz = ifft(F_uz)
+            bx = ifft(F_bx) ;    by = ifft(F_by)  # ;    bz = ifft(F_bz)
+            ux = ifft(F_ux) ;    uy = ifft(F_uy)  ;    uz = ifft(F_uz)
             n = ifft(F_n)
-            # gamma = sqrt(1.+ux**2+uy**2+uz**2)
+            gamma = sqrt(1.+ux**2+uy**2+uz**2)
             # vx = ux/gamma ; vy = uy/gamma ; vz = uz/gamma
             
             print("Bx = ", bx.min(), '..', bx.max())
@@ -245,53 +182,14 @@ def sewerrun():
             fout.flush()
             
             if ctr%picture_alias==0:
-                clf()
-                fig, axes = subplots(5)
-                # print(shape(z), shape(ax))
-                axes[0].plot((z+zlen/2.+t)%zlen-zlen/2., ax0, 'r.')
-                axes[0].plot(z, ax, 'k-')
-                axes[1].plot((z+zlen/2.+t)%zlen-zlen/2., ay0, 'r.')
-                axes[1].plot(z, ay, 'k-')
-                axes[2].plot((z+zlen/2.+t)%zlen-zlen/2., az0, 'r.')
-                axes[2].plot(z, az, 'k-')
-                axes[3].plot((z+zlen/2.+t)%zlen-zlen/2., bx0, 'r.')
-                axes[3].plot(z, bx, 'k-')
-                axes[4].plot((z+zlen/2.+t)%zlen-zlen/2., by0, 'r.')
-                axes[4].plot(z, by, 'k-')
-                axes[0].set_ylabel(r'$a_x$')
-                axes[1].set_ylabel(r'$a_y$')
-                axes[2].set_ylabel(r'$a_z$')
-                axes[3].set_ylabel(r'$b_x$')
-                axes[4].set_ylabel(r'$b_y$')
-                axes[4].set_xlabel(r'$z$')  
-                # legend()
-                axes[0].set_title(r'$t = '+str(round(t))+'$')
-                fig.set_size_inches(12.,10.)
-                savefig('EB{:05d}.png'.format(ctr))
-                clf()
-                plot(z, uz, 'k-', label = r'$u^z$')
-                plot(z, ux, 'r:', label = r'$u^x$')
-                plot(z, uy, 'g--', label = r'$u^y$')
-                xlabel(r'$z$')  ;   ylabel(r'$u^i$') 
-                legend()
-                title(r'$t = '+str(round(t))+'$')
-                fig.set_size_inches(12.,5.)
-                savefig('u{:05d}.png'.format(ctr))
-                clf()
-                plot(z, n, 'k-', label = r'$n$')
-                xlabel(r'$z$')  ;   ylabel(r'$n$') 
-                #        legend()
-                title(r'$t = '+str(round(t))+'$')
-                fig.set_size_inches(12.,5.)
-                savefig('n{:05d}.png'.format(ctr))               
-                close()
+                plots.onthefly(z, (z+zlen/2.+t)%zlen-zlen/2., ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, ux, uy, uz, n/gamma, ctr, t)
                 
-            tlist.append(t)
-            bxlist.append(bx.real)
-            Fbxlist.append(copy(F_bx))
+            tlist.append(tstore)
+            bxlist.append(bx_prev.real + ((tstore-(t-dt))/dt) * (bx-bx_prev).real)
+            Fbxlist.append(F_bx_prev + ((tstore-(t-dt))/dt) * (F_bx-F_bx_prev))
             # print(len(Fbxlist))
-            uzlist.append(uz.real)
-            nlist.append(n.real)
+            uzlist.append(uz_prev.real +  ((tstore-(t-dt))/dt) * (uz-uz_prev).real)
+            nlist.append((n_prev/gamma_prev).real +  ((tstore-(t-dt))/dt) * (n/gamma - n_prev/gamma_prev).real)
             tstore += dtout
             ctr += 1
 
@@ -305,9 +203,19 @@ def sewerrun():
 
     nt = size(tlist)
 
+    #    print(tlist[1]-tlist[0], dtout)
+    print("dtout = ", (tlist[1:]-tlist[:-1]).min(), (tlist[1:]-tlist[:-1]).max())
+    
+    # ii = input('T')
     # print(Fbxlist.real.max(), Fbxlist.real.min())
     #
-    # bxlist_FF = fft2(bxlist) 
+    # bxlist_FF = fft2(bxlist)
+
+    # should we clean the time-averaged value
+    #Fbxlist_mean = Fbxlist.mean(axis = 0)
+    #for k in arange(nt):
+    #    Fbxlist[k, :] -= Fbxlist_mean[k]
+    
     bxlist_FF = fft(Fbxlist, axis = 0) 
     ofreq = fftfreq(size(tlist), dtout)
 
@@ -325,43 +233,17 @@ def sewerrun():
 
     #    nthalf = nt//2
     #    nzhalf = nz//2
-
     
     print("omega = ", ofreq)
     print("k = ", f/2./pi)
 
-    ii = input('T')
+    # ii = input('T')
     
     # saving the data
     hio.okplane_hout(ofreq, f/2./pi, bxlist_FF, hname = 'okplane_Bx.hdf', dataname = 'Bx')
 
-    show_nukeplane()
+    plots.show_nukeplane(f0 = f0)
     
-    # 2D-visualization
-    clf()
-    pcolormesh(z, tlist, bxlist)
-    colorbar()
-    plot(z, z, 'w--')
-    ylim(tlist.min(), tlist.max())
-    xlabel(r'$z$') ; ylabel(r'$t$')  
-    fig.set_size_inches(15.,10.)
-    savefig('EBmap.png'.format(ctr))
-    
-    clf()
-    pcolormesh(z, tlist, uzlist)
-    colorbar()
-    xlabel(r'$z$') ; ylabel(r'$t$')  
-    fig.set_size_inches(15.,10.)
-    savefig('uzmap.png'.format(ctr))
-    
-    clf()
-    pcolormesh(z, tlist, nlist)
-    colorbar()
-    xlabel(r'$z$') ; ylabel(r'$t$')  
-    fig.set_size_inches(15.,10.)
-    savefig('nmap.png'.format(ctr))
-    
-    close()
-        
+    plots.maps(tlist, bxlist, uzlist, nlist)
     
 # ffmpeg -f image2 -r 20 -pattern_type glob -i 'EB*.png' -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2"  -pix_fmt yuv420p -b 8192k EB.mp4
