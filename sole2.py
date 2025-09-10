@@ -3,9 +3,12 @@ import numpy.ma as ma
 
 from matplotlib import gridspec
 
-import os
-import sys
-import glob
+# import os
+# import sys
+# import glob
+
+import threading
+import time
 
 import h5py
 
@@ -35,10 +38,11 @@ import plots
 # physical switches:
 ifmatter = True
 ifonedirection = True
+nvars = 14 # three magnetic fields, three electric fields, three velocities + density for two particle species.
 
 # mesh:
 nz = 4096
-zlen = 20.
+zlen = 100.
 z = (arange(nz) / double(nz) - 0.5) * zlen
 dz = z[1] - z[0]
 print("dz = ", dz)
@@ -46,13 +50,14 @@ print("dz = ", dz)
 # time
 # t = 0.
 dt = dz * 0.5 # CFL in 1D should be not very small
-tmax = 20.
+tmax = 200.
 dtout = 0.01
 picture_alias = 10
 
+
 # initial conditions (circularly polirized wave)
 z0 = 5.0
-f0 = 2.0
+f0 = 0.5
 amp0 = 0.01
 bbgdx = 0.0  ; bbgdy = 0.0 ; bbgdz = 0.0
 bx0 = sin(2. * pi * f0 * z) * exp(-(z/z0)**6/2.) * amp0 + bbgdx
@@ -72,20 +77,64 @@ ux0e = 0. * z
 uy0e = 0. * z
 uz0e = 0. * z
 n0e = ones(nz) * 1.0
-
 # density ; let us keep it unity, meaning time is in omega_p units. Lengths are internally in c/f = 2pi c / omega units, that allows a simpler expression for d/dz 
 
+
+
+def fft_thread(inar, outar, ifinverse = False):
+    if ifinverse:
+        outar = ifft(inar)
+    else:
+        outar = fft(inar)
+
+def NL_thread(f, vz, Fui, addgrid, outar):
+    outar += fft( vz * ifft(1.j*f*Fui)  + addgrid)
+        
 def onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_uxp, F_uyp, F_uzp, F_np, F_uxe, F_uye, F_uze, F_ne, ifmatter):
     # one RK4 step
     # avoid interference with the globals!
     
-    # essential grid quantities:
-    ax = ifft(F_ax) ;    ay = ifft(F_ay) ;    az = ifft(F_az)
-    bx = ifft(F_bx) ;    by = ifft(F_by) # ;    bz = ifft(F_bz)
-    uxp = ifft(F_uxp) ;    uyp = ifft(F_uyp) ;    uzp = ifft(F_uzp)
-    np = ifft(F_np) # n is n gamma
-    uxe = ifft(F_uxe) ;    uye = ifft(F_uye) ;    uze = ifft(F_uze)
-    ne = ifft(F_ne) # n is n gamma
+    time_togrid_start = time.time()
+    # parallel computation of grid quantities:
+    
+    ax = zeros(nz)  ;  ay = zeros(nz) ;  az = zeros(nz)
+    bx = zeros(nz)  ;  by = zeros(nz) # ;  bz = zeros(nz)
+    uxp = zeros(nz)  ;  uyp = zeros(nz) ;  uzp = zeros(nz) ;  np = zeros(nz) # make them global?
+    uxe = zeros(nz)  ;  uye = zeros(nz) ;  uze = zeros(nz) ;  ne = zeros(nz)
+    togrid_ax = threading.Thread(target = fft_thread, args = (F_ax, ax), kwargs = {'ifinverse': True})
+    togrid_ay = threading.Thread(target = fft_thread, args = (F_ay, ay), kwargs = {'ifinverse': True})
+    togrid_az = threading.Thread(target = fft_thread, args = (F_az, az), kwargs = {'ifinverse': True})
+    togrid_bx = threading.Thread(target = fft_thread, args = (F_bx, bx), kwargs = {'ifinverse': True})
+    togrid_by = threading.Thread(target = fft_thread, args = (F_by, by), kwargs = {'ifinverse': True})
+    # togrid_bz = threading.Thread(target = fft_thread, args = (F_bz, bz), kwargs = {'ifinverse': True})
+    togrid_uxp = threading.Thread(target = fft_thread, args = (F_uxp, uxp), kwargs = {'ifinverse': True})
+    togrid_uyp = threading.Thread(target = fft_thread, args = (F_uyp, uyp), kwargs = {'ifinverse': True})
+    togrid_uzp = threading.Thread(target = fft_thread, args = (F_uzp, uzp), kwargs = {'ifinverse': True})
+    togrid_np = threading.Thread(target = fft_thread, args = (F_np, np), kwargs = {'ifinverse': True})
+    togrid_uxe = threading.Thread(target = fft_thread, args = (F_uxe, uxe), kwargs = {'ifinverse': True})
+    togrid_uye = threading.Thread(target = fft_thread, args = (F_uye, uye), kwargs = {'ifinverse': True})
+    togrid_uze = threading.Thread(target = fft_thread, args = (F_uze, uze), kwargs = {'ifinverse': True})
+    togrid_ne = threading.Thread(target = fft_thread, args = (F_ne, ne), kwargs = {'ifinverse': True})
+
+    togrid_ax.start() ;    togrid_ay.start()  ;    togrid_az.start() 
+    togrid_bx.start() ;    togrid_by.start()  # ;    togrid_bz.start() 
+    togrid_uxp.start() ;    togrid_uyp.start()  ;    togrid_uzp.start() ; togrid_np.start()
+    togrid_uxe.start() ;    togrid_uye.start()  ;    togrid_uze.start() ; togrid_ne.start()
+
+    togrid_ax.join() ;    togrid_ay.join()  ;    togrid_az.join() 
+    togrid_bx.join() ;    togrid_by.join()  # ;    togrid_bz.join() 
+    togrid_uxp.join() ;    togrid_uyp.join()  ;    togrid_uzp.join() ; togrid_np.join()
+    togrid_uxe.join() ;    togrid_uye.join()  ;    togrid_uze.join() ; togrid_ne.join()
+   
+    time_togrid_end = time.time()
+    togrid_time_diff = time_togrid_end - time_togrid_start # in seconds
+
+    #    ax = ifft(F_ax) ;    ay = ifft(F_ay) ;    az = ifft(F_az)
+    #    bx = ifft(F_bx) ;    by = ifft(F_by) # ;    bz = ifft(F_bz)
+    #    uxp = ifft(F_uxp) ;    uyp = ifft(F_uyp) ;    uzp = ifft(F_uzp)
+    #    np = ifft(F_np) # n is n gamma
+    #    uxe = ifft(F_uxe) ;    uye = ifft(F_uye) ;    uze = ifft(F_uze)
+    #    ne = ifft(F_ne) # n is n gamma
     gammap = sqrt(1.+uxp**2+uyp**2+uzp**2)
     vxp = uxp/gammap ; vyp = uyp/gammap ; vzp = uzp/gammap
     gammae = sqrt(1.+uxe**2+uye**2+uze**2)
@@ -103,19 +152,46 @@ def onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_uxp, F_uyp, F_uzp, F_np, F_uxe, F
     dF_ay = -1.j * f * F_bx - fft(jy) * complex(ifmatter) # other Maxwell
     dF_az =   - fft(jz) * complex(ifmatter) # other Maxwell
 
+    #
+    # NL_thread(f, vz, Fui, addgrid, outar)
+
     # hydrodynamics
-    dF_uxp = F_ax + fft( -vxp * ifft(-1.j*f*F_uxp) + vyp * bz - vzp * by)
-    dF_uyp = F_ay + fft( -vyp * ifft(-1.j*f*F_uyp) + vzp * bx - vxp * bz)
-    dF_uzp = F_az + fft( -vzp * ifft(-1.j*f*F_uzp) + vxp * by - vyp * bx)
+    dF_uxp = F_ax #+ fft( -vzp * ifft(-1.j*f*F_uxp) + vyp * bz - vzp * by)
+    dF_uyp = F_ay #+ fft( -vzp * ifft(-1.j*f*F_uyp) + vzp * bx - vxp * bz)
+    dF_uzp = F_az #+ fft( -vzp * ifft(-1.j*f*F_uzp) + vxp * by - vyp * bx)
+    dF_uxe = -F_ax #+ fft( -vzp * ifft(-1.j*f*F_uxp) + vyp * bz - vzp * by)
+    dF_uye = -F_ay #+ fft( -vzp * ifft(-1.j*f*F_uyp) + vzp * bx - vxp * bz)
+    dF_uze = -F_az #+ fft( -vzp * ifft(-1.j*f*F_uzp) + vxp * by - vyp * bx)
+
+    time_NL_start = time.time()
+    # adding non-linear terms (parallelized)
+    NLxp_thread = threading.Thread(target = NL_thread, args = (f, vzp, F_uxp, vyp * bz - vzp * by, dF_uxp))
+    NLyp_thread = threading.Thread(target = NL_thread, args = (f, vzp, F_uyp, vzp * bx - vxp * bz, dF_uyp))
+    NLzp_thread = threading.Thread(target = NL_thread, args = (f, vzp, F_uzp, vxp * by - vyp * bx, dF_uzp))
+    NLxe_thread = threading.Thread(target = NL_thread, args = (f, vze, F_uxe, vye * bz - vze * by, dF_uxe))
+    NLye_thread = threading.Thread(target = NL_thread, args = (f, vze, F_uye, vze * bx - vxe * bz, dF_uye))
+    NLze_thread = threading.Thread(target = NL_thread, args = (f, vze, F_uze, vxe * by - vye * bx, dF_uze))
+
+    NLxp_thread.start() ; NLyp_thread.start() ; NLzp_thread.start() ;     NLxe_thread.start() ; NLye_thread.start() ; NLze_thread.start()
+
+    NLxp_thread.join() ; NLyp_thread.join() ; NLzp_thread.join() ;     NLxe_thread.join() ; NLye_thread.join() ; NLze_thread.join()
+    
+    time_NL_end = time.time()
+    NL_time_diff = time_NL_end - time_NL_start
+    
     dF_np = 1.j * f * fft(vzp*np) 
-    dF_uxe = -F_ax + fft( -vxe * ifft(-1.j*f*F_uxe) + vye * bz - vze * by)
-    dF_uye = -F_ay + fft( -vye * ifft(-1.j*f*F_uye) + vze * bx - vxe * bz)
-    dF_uze = -F_az + fft( -vze * ifft(-1.j*f*F_uze) + vxe * by - vye * bx)
+    #    dF_uxe = -F_ax + fft( -vze * ifft(-1.j*f*F_uxe) + vye * bz - vze * by)
+    #    dF_uye = -F_ay + fft( -vze * ifft(-1.j*f*F_uye) + vze * bx - vxe * bz)
+    #    dF_uze = -F_az + fft( -vze * ifft(-1.j*f*F_uze) + vxe * by - vye * bx)
     dF_ne = 1.j * f * fft(vze * ne) 
 
-    return dF_ax, dF_ay, dF_az, dF_bx, dF_by, dF_uxp, dF_uyp, dF_uzp, dF_np, dF_uxe, dF_uye, dF_uze, dF_ne
+    return dF_ax, dF_ay, dF_az, dF_bx, dF_by, dF_uxp, dF_uyp, dF_uzp, dF_np, dF_uxe, dF_uye, dF_uze, dF_ne, (togrid_time_diff, NL_time_diff)
 
 def sewerrun2():
+
+    # performance control:
+    togrid_time = 0.
+    NL_time = 0.0
     
     f = fftfreq(nz, d = dz / (2. * pi)) # Fourier mesh
 
@@ -171,9 +247,9 @@ def sewerrun2():
            
         # TODO: make it dictionaries or structures
     
-        dF_ax1, dF_ay1, dF_az1, dF_bx1, dF_by1, dF_uxp1, dF_uyp1, dF_uzp1, dF_np1, dF_uxe1, dF_uye1, dF_uze1, dF_ne1 = onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_uxp, F_uyp, F_uzp, F_np, F_uxe, F_uye, F_uze, F_ne, ifmatter)
-        dF_ax2, dF_ay2, dF_az2, dF_bx2, dF_by2, dF_uxp2, dF_uyp2, dF_uzp2, dF_np2, dF_uxe2, dF_uye2, dF_uze2, dF_ne2 = onestep(f, F_ax + dF_ax1/3. * dt, F_ay  + dF_ay1/3. * dt, dF_az1/3. * dt, F_bx + dF_bx1/3. * dt, F_by + dF_by1/3. * dt, F_uxp + dF_uxp1/3. * dt, F_uyp + dF_uyp1/3. * dt, F_uzp  + dF_uzp1/3. * dt, F_np  + dF_np1/3. * dt, F_uxe + dF_uxe1/3. * dt, F_uye + dF_uye1/3. * dt, F_uze  + dF_uze1/3. * dt, F_ne  + dF_ne1/3. * dt, ifmatter)
-        dF_ax2, dF_ay2, dF_az2, dF_bx2, dF_by2, dF_uxp2, dF_uyp2, dF_uzp2, dF_np2, dF_uxe2, dF_uye2, dF_uze2, dF_ne2 = onestep(f, F_ax + dF_ax2 * 2./3. * dt, F_ay  + dF_ay2 * 2./3. * dt, dF_az2 * 2./3. * dt, F_bx + dF_bx2 * 2./3. * dt, F_by + dF_by2 * 2./3. * dt, F_uxp + dF_uxp2 * 2./3. * dt, F_uyp + dF_uyp2 * 2./3. * dt, F_uzp  + dF_uzp2 * 2./3. * dt, F_np  + dF_np2 * 2./3. * dt, F_uxe + dF_uxe2 * 2./3. * dt, F_uye + dF_uye2 * 2./3. * dt, F_uze  + dF_uze2 * 2./3. * dt, F_ne  + dF_ne2 * 2./3. * dt, ifmatter)    
+        dF_ax1, dF_ay1, dF_az1, dF_bx1, dF_by1, dF_uxp1, dF_uyp1, dF_uzp1, dF_np1, dF_uxe1, dF_uye1, dF_uze1, dF_ne1, dtos1 = onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_uxp, F_uyp, F_uzp, F_np, F_uxe, F_uye, F_uze, F_ne, ifmatter)
+        dF_ax2, dF_ay2, dF_az2, dF_bx2, dF_by2, dF_uxp2, dF_uyp2, dF_uzp2, dF_np2, dF_uxe2, dF_uye2, dF_uze2, dF_ne2, dtos2 = onestep(f, F_ax + dF_ax1/3. * dt, F_ay  + dF_ay1/3. * dt, dF_az1/3. * dt, F_bx + dF_bx1/3. * dt, F_by + dF_by1/3. * dt, F_uxp + dF_uxp1/3. * dt, F_uyp + dF_uyp1/3. * dt, F_uzp  + dF_uzp1/3. * dt, F_np  + dF_np1/3. * dt, F_uxe + dF_uxe1/3. * dt, F_uye + dF_uye1/3. * dt, F_uze  + dF_uze1/3. * dt, F_ne  + dF_ne1/3. * dt, ifmatter)
+        dF_ax2, dF_ay2, dF_az2, dF_bx2, dF_by2, dF_uxp2, dF_uyp2, dF_uzp2, dF_np2, dF_uxe2, dF_uye2, dF_uze2, dF_ne2, dtos3 = onestep(f, F_ax + dF_ax2 * 2./3. * dt, F_ay  + dF_ay2 * 2./3. * dt, dF_az2 * 2./3. * dt, F_bx + dF_bx2 * 2./3. * dt, F_by + dF_by2 * 2./3. * dt, F_uxp + dF_uxp2 * 2./3. * dt, F_uyp + dF_uyp2 * 2./3. * dt, F_uzp  + dF_uzp2 * 2./3. * dt, F_np  + dF_np2 * 2./3. * dt, F_uxe + dF_uxe2 * 2./3. * dt, F_uye + dF_uye2 * 2./3. * dt, F_uze  + dF_uze2 * 2./3. * dt, F_ne  + dF_ne2 * 2./3. * dt, ifmatter)    
    
         # time step:
         F_bx += (dF_bx1 * 0.25 + dF_bx2 * 0.75) * dt ;    F_by += (dF_by1 * 0.25 + dF_by2 * 0.75) * dt
@@ -189,10 +265,17 @@ def sewerrun2():
         F_ax *= hypercore ;   F_ay *= hypercore  ;   F_az *= hypercore 
         F_uxp *= hypercore ;   F_uyp *= hypercore  ;   F_uzp *= hypercore   ;    F_np *= hypercore
         F_uxe *= hypercore ;   F_uye *= hypercore  ;   F_uze *= hypercore   ;    F_ne *= hypercore
-       
+
+        # performance control:
+        togrid_time += dtos1[0] + dtos2[0] + dtos3[0]
+        NL_time += dtos1[1] + dtos2[1] + dtos3[1]
+        
         if t > (tstore + dtout):
             print("t = ", t)
-
+            print("togrid_time = ", togrid_time)
+            print("NL_time = ", NL_time)
+            togrid_time = 0.  ;  NL_time = 0.
+            
             if ctr%picture_alias==0:
                 # Fourier spectrum:
                 clf()
