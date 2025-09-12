@@ -178,7 +178,7 @@ def sewerrun():
 
             # ASCII output
             for k in arange(size(bx)):
-                fout.write(str(t) + ' ' + str(z[k]) + str(bx[k])+'\n')
+                fout.write(str(t) + ' ' + str(z[k]) + ' ' + str(bx[k])+'\n')
             fout.flush()
             
             if ctr%picture_alias==0:

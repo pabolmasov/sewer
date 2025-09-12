@@ -8,16 +8,13 @@ from numpy import *
 
 cmap = 'viridis'
 
+def show_nukeplane(omega0 = 1.0, bgdfield = 0.):
 
-def show_nukeplane(f0 = 1.0, bgdfield = 0.):
-
-    nu, k, datalist = hio.okplane_hread('okplane_Bx.hdf', datanames = ['Bx'])
+    omega, k, datalist = hio.okplane_hread('okplane_Bx.hdf', datanames = ['Bx'])
     bxlist_FF =  datalist[0][:,:]
     print(type(bxlist_FF[0,0]))
-    print(type(nu[0]))
+    print(type(omega[0]))
     print(type(k[0]))
-
-    print(nu)
     
     babs = sqrt(bxlist_FF.real**2 + bxlist_FF.imag**2)
     # fftshift(nu)
@@ -26,42 +23,35 @@ def show_nukeplane(f0 = 1.0, bgdfield = 0.):
     
     clf()
     fig = figure()
-    # pcolormesh(tlist, f/2./pi, transpose(Fbxlist.real), shading='nearest', vmin = -10, vmax = 10)
-    pcolormesh(nu, k, transpose(babs), vmin = maximum(babs.min(), babs.max()-3.), vmax = babs.max())
-    # pcolormesh(ofreq[:nthalf], f[:nzhalf]/2./pi, transpose(babs)[:nzhalf, :nthalf], vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max(), shading='nearest')
-    # pcolormesh(ofreq[nthalf:], f[:nzhalf]/2./pi, transpose(babs)[:nzhalf, nthalf:], vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max(), shading='nearest')
-    # pcolormesh(ofreq[:nthalf], f[nzhalf:]/2./pi, transpose(babs)[nzhalf:, :nthalf], vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max(), shading='nearest')
-    # pcolormesh(ofreq[nthalf:], f[nzhalf:]/2./pi, transpose(babs)[nzhalf:, nthalf:], vmin = maximum(babs.min(), babs.max()-5.), vmax = babs.max(), shading='nearest')
+    pcolormesh(omega, k, transpose(babs), vmin = maximum(babs.min(), babs.max()-3.), vmax = babs.max())
+
     cb = colorbar()
     cb.set_label(r'$\log_{10} |\tilde{b}_x|$')
     #plot([-f0], [ f0], 'ro', mfc='none')
     #plot([f0], [ -f0], 'ro', mfc='none')
 
-    ktmp = 20.*f0 * (arange(100)/double(100)-0.5)
-
-    #plot(ktmp/2./pi, ktmp/2./pi, 'w--')
-    #plot(-ktmp/2./pi, ktmp/2./pi, 'w--')
-    #plot(ktmp/2./pi, -ktmp/2./pi, 'w--')
-    #plot(-ktmp/2./pi, -ktmp/2./pi, 'w--')    
+    ktmp = 3. * omega0 * (arange(100)/double(100)-0.5)
     
     if abs(bgdfield)>0.01:
         # circularly polarized components
-        plot(ktmp/2./pi, (ktmp - 1./(ktmp+bbgdz))/2./pi, 'b:')
-        plot(ktmp/2./pi, (ktmp - 1./(ktmp-bbgdz))/2./pi, 'r:')        
-        plot(ktmp/2./pi, -(ktmp - 1./(ktmp+bbgdz))/2./pi, 'r:')
-        plot(ktmp/2./pi, -(ktmp - 1./(ktmp-bbgdz))/2./pi, 'b:')        
+        plot(ktmp, (ktmp - 1./(ktmp+bbgdz)), 'b:')
+        plot(ktmp, (ktmp - 1./(ktmp-bbgdz)), 'r:')        
+        plot(ktmp, -(ktmp - 1./(ktmp+bbgdz)), 'r:')
+        plot(ktmp, -(ktmp - 1./(ktmp-bbgdz)), 'b:')        
     else:
-        plot(sqrt(1.+ktmp**2)/2./pi, ktmp/2./pi, 'w:')
-        plot(-sqrt(1.+ktmp**2)/2./pi, ktmp/2./pi, 'w:')
-        plot(sqrt(1.+ktmp**2)/2./pi, -ktmp/2./pi, 'w:')
-        plot(-sqrt(1.+ktmp**2)/2./pi, -ktmp/2./pi, 'w:')
+        plot(sqrt(1.+ktmp**2), ktmp, 'w:')
+        plot(-sqrt(1.+ktmp**2), ktmp, 'w:')
+        plot(sqrt(1.+ktmp**2), -ktmp, 'w:')
+        plot(-sqrt(1.+ktmp**2), -ktmp, 'w:')
     
-    xlim(-2. * f0 , 2. * f0 )
-    ylim(-2. * f0, 2. * f0)
+    xlim(-2. * omega0 , 2. * omega0 )
+    ylim(-2. * omega0, 2. * omega0)
+    # xlim(omega.min(), omega.max())
+    # ylim(k.min(), k.max())
     
     #    xlim(1./tmax, 1./dtout)  ;  ylim(1./zlen, 1./dz)
     fig.set_size_inches(15.,10.)
-    xlabel(r'$\nu$') ; ylabel(r'$k$')    
+    xlabel(r'$\omega/\omega_{\rm p}$') ; ylabel(r'$k \delta$')    
     savefig('okplane.png')
          
 
@@ -78,6 +68,27 @@ def circorrelate(x, y):
         r[k] = ((x-meanx)*(y1-meany)).sum()/stdx/stdy
 
     return r
+
+def maps_dat(filename = "sewerout.dat"):
+
+    lines = loadtxt(filename)
+
+    t2 = lines[:,0]  ;   z2 = lines[:,1]  ;  q = lines[:,2]
+
+    nt = size(unique(t2))   ; nz = size(unique(z2))
+
+    t2 = reshape(t2, [nt, nz]) ;  z2 = reshape(z2, [nt, nz]) ; q = reshape(q, [nt, nz])
+
+    clf()
+    fig = figure()
+    pcolormesh(z2, t2, q)
+    colorbar()
+    plot(z2[0,:], z2[0,:], 'w--')
+    xlabel(r'$z$') ; ylabel(r'$t$')  
+    ylim(t2.min(), t2.max())
+    fig.set_size_inches(15.,10.)
+    savefig('qmap.png')
+    
 
 def maps(z, tlist, bxlist, uzlist, nlist, ctr):
     s = shape(nlist)
@@ -101,7 +112,7 @@ def maps(z, tlist, bxlist, uzlist, nlist, ctr):
     ylim(tlist.min(), tlist.max())
     xlabel(r'$z$') ; ylabel(r'$t$')  
     fig.set_size_inches(15.,10.)
-    savefig('EBmap.png'.format(ctr))
+    savefig('EBmap.png')
     
     clf()
     fig, ax = subplots(ncols=2, figsize=(8, 4))

@@ -50,23 +50,27 @@ print("dz = ", dz)
 # time
 # t = 0.
 dt = dz * 0.5 # CFL in 1D should be not very small
-tmax = 200.
+tmax = 100.
 dtout = 0.01
-picture_alias = 10
-
+dtout = ceil(dtout/dt) * dt
+dtalias = int(ceil(dtout/dt))
+print("dtout / dt = ", dtalias)
+picture_alias = 20 # every n-th data point is plotted in time
+plotalias = 5 # every n-th point in space (or wavenumber)
 
 # initial conditions (circularly polirized wave)
-z0 = 5.0
-f0 = 0.5
-amp0 = 0.01
+z0 = 2.0
+omega0 = 5. # frequency in omegap units
+# f0 = omega0 
+amp0 = 0.001
 bbgdx = 0.0  ; bbgdy = 0.0 ; bbgdz = 0.0
-bx0 = sin(2. * pi * f0 * z) * exp(-(z/z0)**6/2.) * amp0 + bbgdx
-by0 =  - cos(2. * pi * f0 * z) * exp(-(z/z0)**6/2.) * amp0 * 0. + bbgdy
+bx0 = sin(omega0 * z) * exp(-(z/z0)**6/2.) * amp0 + bbgdx
+by0 =  - cos(omega0 * z) * exp(-(z/z0)**6/2.) * amp0 * 0. + bbgdy
 bz0 = z *  0. + bbgdz
 bz = bz0
 
-ax0 = cos(2. * pi * f0 * z) * exp(-(z/z0)**6/2.) * amp0 * 0.
-ay0 =  sin(2. * pi * f0 * z) * exp(-(z/z0)**6/2.) * amp0
+ax0 = cos(omega0 * z) * exp(-(z/z0)**6/2.) * amp0 * 0.
+ay0 =  sin(omega0 * z) * exp(-(z/z0)**6/2.) * amp0
 az0 = z * 0.
 # 4-velocity
 ux0p = 0. * z
@@ -77,23 +81,27 @@ ux0e = 0. * z
 uy0e = 0. * z
 uz0e = 0. * z
 n0e = ones(nz) * 1.0
-# density ; let us keep it unity, meaning time is in omega_p units. Lengths are internally in c/f = 2pi c / omega units, that allows a simpler expression for d/dz 
-
-
+# density ; let us keep it unity, meaning time is in omega_p units. Lengths are internally in  c / omega units, that allows a simpler expression for d/dz 
 
 def fft_thread(inar, outar, ifinverse = False):
     if ifinverse:
-        outar = ifft(inar)
+        outar[:] = ifft(inar)[:]
     else:
-        outar = fft(inar)
+        outar[:] = fft(inar)[:]
 
 def NL_thread(f, vz, Fui, addgrid, outar):
-    outar += fft( vz * ifft(1.j*f*Fui)  + addgrid)
-        
+    outar[:] += fft( vz * ifft(1.j*f*Fui)  + addgrid)
+
+def cont_thread(f, vn, dF):
+    dF[:] = 1.j * f * fft(vn)
+    
+def multiplyby_thread(ar, core):
+    ar[:] *= core
+    
 def onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_uxp, F_uyp, F_uzp, F_np, F_uxe, F_uye, F_uze, F_ne, ifmatter):
     # one RK4 step
     # avoid interference with the globals!
-    
+    # global ax, ay, az, bx, by, bz, uxp, uyp, uzp, np, uxe, uye, uze, ne
     time_togrid_start = time.time()
     # parallel computation of grid quantities:
     
@@ -116,6 +124,9 @@ def onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_uxp, F_uyp, F_uzp, F_np, F_uxe, F
     togrid_uze = threading.Thread(target = fft_thread, args = (F_uze, uze), kwargs = {'ifinverse': True})
     togrid_ne = threading.Thread(target = fft_thread, args = (F_ne, ne), kwargs = {'ifinverse': True})
 
+    # print("bx.max() = ", bx.max())
+    #     ii = input("B")
+    
     togrid_ax.start() ;    togrid_ay.start()  ;    togrid_az.start() 
     togrid_bx.start() ;    togrid_by.start()  # ;    togrid_bz.start() 
     togrid_uxp.start() ;    togrid_uyp.start()  ;    togrid_uzp.start() ; togrid_np.start()
@@ -126,6 +137,9 @@ def onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_uxp, F_uyp, F_uzp, F_np, F_uxe, F
     togrid_uxp.join() ;    togrid_uyp.join()  ;    togrid_uzp.join() ; togrid_np.join()
     togrid_uxe.join() ;    togrid_uye.join()  ;    togrid_uze.join() ; togrid_ne.join()
    
+    # print("bx.max() = ", bx.max())
+    # ii = input("B")
+
     time_togrid_end = time.time()
     togrid_time_diff = time_togrid_end - time_togrid_start # in seconds
 
@@ -141,27 +155,39 @@ def onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_uxp, F_uyp, F_uzp, F_np, F_uxe, F
     vxe = uxe/gammae ; vye = uye/gammae ; vze = uze/gammae
 
     # currents:
-    jx = np * uxp - ne * uxe
-    jy = np * uyp - ne * uye
-    jz = np * uzp - ne * uze
+    if ifmatter:
+        jx = np * uxp - ne * uxe
+        jy = np * uyp - ne * uye
+        jz = np * uzp - ne * uze
     
     # Maxwell equations:
     dF_bx = -1.j * f * F_ay # one Maxwell
     dF_by = 1.j * f * F_ax # one Maxwell
-    dF_ax = 1.j * f * F_by  - fft(jx) * complex(ifmatter) # other Maxwell
-    dF_ay = -1.j * f * F_bx - fft(jy) * complex(ifmatter) # other Maxwell
-    dF_az =   - fft(jz) * complex(ifmatter) # other Maxwell
-
+    
+    if ifmatter:
+        dF_ax = 1.j * f * F_by  - fft(jx)  # other Maxwell
+        dF_ay = -1.j * f * F_bx - fft(jy)  # other Maxwell
+        dF_az =   - fft(jz) # other Maxwell
+    else:
+        dF_ax = 1.j * f * F_by
+        dF_ay = -1.j * f * F_bx
+        dF_az = zeros(nz, dtype = complex)
     #
     # NL_thread(f, vz, Fui, addgrid, outar)
 
-    # hydrodynamics
+    # electric force:
     dF_uxp = F_ax #+ fft( -vzp * ifft(-1.j*f*F_uxp) + vyp * bz - vzp * by)
     dF_uyp = F_ay #+ fft( -vzp * ifft(-1.j*f*F_uyp) + vzp * bx - vxp * bz)
-    dF_uzp = F_az #+ fft( -vzp * ifft(-1.j*f*F_uzp) + vxp * by - vyp * bx)
     dF_uxe = -F_ax #+ fft( -vzp * ifft(-1.j*f*F_uxp) + vyp * bz - vzp * by)
     dF_uye = -F_ay #+ fft( -vzp * ifft(-1.j*f*F_uyp) + vzp * bx - vxp * bz)
-    dF_uze = -F_az #+ fft( -vzp * ifft(-1.j*f*F_uzp) + vxp * by - vyp * bx)
+    
+    if ifmatter:
+        dF_uzp = F_az #+ fft( -vzp * ifft(-1.j*f*F_uzp) + vxp * by - vyp * bx)
+        dF_uze = -F_az
+    else:
+        dF_uzp = zeros(nz, dtype=complex)
+        dF_uze = zeros(nz, dtype=complex)
+    # dF_uze = -F_az #+ fft( -vzp * ifft(-1.j*f*F_uzp) + vxp * by - vyp * bx)
 
     time_NL_start = time.time()
     # adding non-linear terms (parallelized)
@@ -172,30 +198,38 @@ def onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_uxp, F_uyp, F_uzp, F_np, F_uxe, F
     NLye_thread = threading.Thread(target = NL_thread, args = (f, vze, F_uye, vze * bx - vxe * bz, dF_uye))
     NLze_thread = threading.Thread(target = NL_thread, args = (f, vze, F_uze, vxe * by - vye * bx, dF_uze))
 
-    NLxp_thread.start() ; NLyp_thread.start() ; NLzp_thread.start() ;     NLxe_thread.start() ; NLye_thread.start() ; NLze_thread.start()
+    dF_np = zeros(nz, dtype = complex) ; dF_ne = zeros(nz, dtype = complex)
+    contp_thread = threading.Thread(target = cont_thread, args = (f, vzp * np, dF_np))
+    conte_thread = threading.Thread(target = cont_thread, args = (f, vze * ne, dF_ne))
 
-    NLxp_thread.join() ; NLyp_thread.join() ; NLzp_thread.join() ;     NLxe_thread.join() ; NLye_thread.join() ; NLze_thread.join()
+    NLxp_thread.start() ; NLyp_thread.start() ; NLzp_thread.start() ;     NLxe_thread.start() ; NLye_thread.start() ; NLze_thread.start()
+    contp_thread.start() ; conte_thread.start()
     
+    NLxp_thread.join() ; NLyp_thread.join() ; NLzp_thread.join() ;     NLxe_thread.join() ; NLye_thread.join() ; NLze_thread.join()
+    contp_thread.join() ; conte_thread.join()
+   
     time_NL_end = time.time()
     NL_time_diff = time_NL_end - time_NL_start
     
-    dF_np = 1.j * f * fft(vzp*np) 
+    #    dF_np = 1.j * f * fft(vzp*np) 
     #    dF_uxe = -F_ax + fft( -vze * ifft(-1.j*f*F_uxe) + vye * bz - vze * by)
     #    dF_uye = -F_ay + fft( -vze * ifft(-1.j*f*F_uye) + vze * bx - vxe * bz)
     #    dF_uze = -F_az + fft( -vze * ifft(-1.j*f*F_uze) + vxe * by - vye * bx)
-    dF_ne = 1.j * f * fft(vze * ne) 
+    #    dF_ne = 1.j * f * fft(vze * ne) 
 
     return dF_ax, dF_ay, dF_az, dF_bx, dF_by, dF_uxp, dF_uyp, dF_uzp, dF_np, dF_uxe, dF_uye, dF_uze, dF_ne, (togrid_time_diff, NL_time_diff)
 
 def sewerrun2():
 
+    # global ax, ay, az, bx, by, bz, uxp, uyp, uzp, np, uxe, uye, uze, ne
+    # global ax_prev, ay_prev, az_prev, bx_prev, by_prev, bz_prev, uxp_prev, uyp_prev, uzp_prev, np_prev, uxe_prev, uye_prev, uze_prev, ne_prev
     # performance control:
-    togrid_time = 0.
-    NL_time = 0.0
+    togrid_time = 0.0 ;    NL_time = 0.0  ;  diff_time = 0.0 ; total_time = 0.0 ; plotting_time = 0.0 ; timestep_time = 0.0
+    total_time_start = time.time()
     
-    f = fftfreq(nz, d = dz / (2. * pi)) # Fourier mesh
+    f = fftfreq(nz, d = dz / (2.*pi)) # Fourier mesh
 
-    # Fourier images
+    # Fourier images (local within sewerrun2)
     F_bx = fft(bx0)
     F_ax = fft(ax0)
     F_uxp = fft(ux0p)
@@ -211,11 +245,35 @@ def sewerrun2():
     F_np  = fft(n0p)
     F_ne  = fft(n0e)
 
+    F_bx_prev = copy(F_bx)
+    
+    # can we keep them global?
+    ax = zeros(nz)  ;  ay = zeros(nz) ;  az = zeros(nz)
+    bx = zeros(nz)  ;  by = zeros(nz) # ;  bz = zeros(nz)
+    uxp = zeros(nz)  ;  uyp = zeros(nz) ;  uzp = zeros(nz) ;  np = zeros(nz) # make them global?
+    uxe = zeros(nz)  ;  uye = zeros(nz) ;  uze = zeros(nz) ;  ne = zeros(nz)
+    ax_prev = zeros(nz)  ;  ay_prev = zeros(nz) ;  az_prev = zeros(nz)
+    bx_prev = zeros(nz)  ;  by_prev = zeros(nz) # ;  bz_prev = zeros(nz)
+    uxp_prev = zeros(nz)  ;  uyp_prev = zeros(nz) ;  uzp_prev = zeros(nz) ;  np_prev = zeros(nz) # make them global?
+    uxe_prev = zeros(nz)  ;  uye_prev = zeros(nz) ;  uze_prev = zeros(nz) ;  ne_prev = zeros(nz)
+    '''
+    ax = copy(ax0) ; ay = copy(ay0) ;  az = copy(az0)  
+    bx = copy(ax0) ; by = copy(by0) # ;  az = copy(bz0)  
+    uxp = copy(ux0p) ; uyp = copy(uy0p) ;  uzp = copy(uz0p) ; np = copy(n0p)  
+    uxe = copy(ux0e) ; uye = copy(uy0e) ;  uze = copy(uz0e) ; ne = copy(n0e)  
+    ax_prev = copy(ax0) ; ay_prev = copy(ay0) ;  az_prev = copy(az0)  
+    bx_prev = copy(bx0) ; by_prev = copy(by0) # ;  az = copy(bz0)  
+    uxp_prev = copy(ux0p) ; uyp_prev = copy(uy0p) ;  uzp_prev = copy(uz0p) ; np_prev = copy(n0p)  
+    uxe_prev = copy(ux0e) ; uye_prev = copy(uy0e) ;  uze_prev = copy(uz0e) ; ne_prev = copy(n0e)  
+    '''
     if ifonedirection:
         # the square root is the correction for plasma dispersion
-        F_ay[abs(f)>0.] = 1. * copy(F_bx)[abs(f)>0.] * sqrt(1.+(2.*pi*f)**(-2))[abs(f)>0.]
-        F_ax[abs(f)>0.] = -1. * copy(F_by)[abs(f)>0.]  * sqrt(1.+(2.*pi*f)**(-2))[abs(f)>0.]
-            
+        if ifmatter:
+            F_ay[abs(f)>0.] = 1. * copy(F_bx)[abs(f)>0.] * sqrt(1.+(f)**(-2))[abs(f)>0.]
+            F_ax[abs(f)>0.] = -1. * copy(F_by)[abs(f)>0.]  * sqrt(1.+(f)**(-2))[abs(f)>0.]
+        else:
+            F_ay[abs(f)>0.] = 1. * copy(F_bx)[abs(f)>0.]
+            F_ax[abs(f)>0.] = -1. * copy(F_by)[abs(f)>0.]
     t = 0.
     ctr = 0
     tstore = 0.
@@ -228,23 +286,44 @@ def sewerrun2():
     # hyperdiffusion core
     fsq = (f * conj(f)).real
     hyperpower = 4.0
-    hypercore = exp(-(fsq / (fsq.real).max() * (2.*pi)**2)**hyperpower * 2.) + 0.j
+    hypercore = exp(-(fsq / (fsq.real).max())**hyperpower * 1.) + 0.j
 
     # print(f)
     fout = open('sewerout.dat', 'w+')
     fout.write('# t -- z -- Bx \n')
     
     while t < tmax:
-        if t > (tstore + dtout - dt):
-            # save previous values
-            F_bx_prev = F_bx
-            ax_prev = ifft(F_ax) ;    ay_prev = ifft(F_ay)  ;    az_prev = ifft(F_az)
-            bx_prev = ifft(F_bx) ;    by_prev = ifft(F_by)  # ;    bz = ifft(F_bz)
-            uxp_prev = ifft(F_uxp) ;    uyp_prev = ifft(F_uyp)  ;    uzp_prev = ifft(F_uzp)
-            np_prev = ifft(F_np) ; gammap_prev = sqrt(1.+uxp_prev**2+uyp_prev**2+uzp_prev**2)
-            uxe_prev = ifft(F_uxe) ;    uye_prev = ifft(F_uye)  ;    uze_prev = ifft(F_uze)
-            ne_prev = ifft(F_ne) ; gammae_prev = sqrt(1.+uxe_prev**2+uye_prev**2+uze_prev**2)
-           
+        if t > (tstore - dt):
+            # save previous values (togrid parallelized)
+            F_bx_prev[:] = F_bx[:]
+            # parallelized conversion to grid values:
+            time_togrid_start = time.time()
+            togrid_ax_prev = threading.Thread(target = fft_thread, args = (F_ax, ax_prev), kwargs = {'ifinverse': True})
+            togrid_ay_prev = threading.Thread(target = fft_thread, args = (F_ay, ay_prev), kwargs = {'ifinverse': True})
+            togrid_az_prev = threading.Thread(target = fft_thread, args = (F_az, az_prev), kwargs = {'ifinverse': True})
+            togrid_bx_prev = threading.Thread(target = fft_thread, args = (F_bx, bx_prev), kwargs = {'ifinverse': True})
+            togrid_by_prev = threading.Thread(target = fft_thread, args = (F_by, by_prev), kwargs = {'ifinverse': True})
+            togrid_uxp_prev = threading.Thread(target = fft_thread, args = (F_uxp, uxp_prev), kwargs = {'ifinverse': True})
+            togrid_uyp_prev = threading.Thread(target = fft_thread, args = (F_uyp, uyp_prev), kwargs = {'ifinverse': True})
+            togrid_uzp_prev = threading.Thread(target = fft_thread, args = (F_uzp, uzp_prev), kwargs = {'ifinverse': True})
+            togrid_np_prev = threading.Thread(target = fft_thread, args = (F_np, np_prev), kwargs = {'ifinverse': True})
+            togrid_uxe_prev = threading.Thread(target = fft_thread, args = (F_uxe, uxe_prev), kwargs = {'ifinverse': True})
+            togrid_uye_prev = threading.Thread(target = fft_thread, args = (F_uye, uye_prev), kwargs = {'ifinverse': True})
+            togrid_uze_prev = threading.Thread(target = fft_thread, args = (F_uze, uze_prev), kwargs = {'ifinverse': True})
+            togrid_ne_prev = threading.Thread(target = fft_thread, args = (F_ne, ne_prev), kwargs = {'ifinverse': True})
+
+            togrid_ax_prev.start() ;    togrid_ay_prev.start()  ;    togrid_az_prev.start() 
+            togrid_bx_prev.start() ;    togrid_by_prev.start()  # ;    togrid_bz_prev.start() 
+            togrid_uxp_prev.start() ;    togrid_uyp_prev.start()  ;    togrid_uzp_prev.start() ; togrid_np_prev.start()
+            togrid_uxe_prev.start() ;    togrid_uye_prev.start()  ;    togrid_uze_prev.start() ; togrid_ne_prev.start()
+            
+            togrid_ax_prev.join() ;    togrid_ay_prev.join()  ;    togrid_az_prev.join() 
+            togrid_bx_prev.join() ;    togrid_by_prev.join()  # ;    togrid_bz.join() 
+            togrid_uxp_prev.join() ;    togrid_uyp_prev.join()  ;    togrid_uzp_prev.join() ; togrid_np_prev.join()
+            togrid_uxe_prev.join() ;    togrid_uye_prev.join()  ;    togrid_uze_prev.join() ; togrid_ne_prev.join()
+            gammap_prev = sqrt(1.+uxp**2+uyp**2+uzp**2)
+            gammae_prev = sqrt(1.+uxe**2+uye**2+uze**2)
+          
         # TODO: make it dictionaries or structures
     
         dF_ax1, dF_ay1, dF_az1, dF_bx1, dF_by1, dF_uxp1, dF_uyp1, dF_uzp1, dF_np1, dF_uxe1, dF_uye1, dF_uze1, dF_ne1, dtos1 = onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_uxp, F_uyp, F_uzp, F_np, F_uxe, F_uye, F_uze, F_ne, ifmatter)
@@ -252,6 +331,7 @@ def sewerrun2():
         dF_ax2, dF_ay2, dF_az2, dF_bx2, dF_by2, dF_uxp2, dF_uyp2, dF_uzp2, dF_np2, dF_uxe2, dF_uye2, dF_uze2, dF_ne2, dtos3 = onestep(f, F_ax + dF_ax2 * 2./3. * dt, F_ay  + dF_ay2 * 2./3. * dt, dF_az2 * 2./3. * dt, F_bx + dF_bx2 * 2./3. * dt, F_by + dF_by2 * 2./3. * dt, F_uxp + dF_uxp2 * 2./3. * dt, F_uyp + dF_uyp2 * 2./3. * dt, F_uzp  + dF_uzp2 * 2./3. * dt, F_np  + dF_np2 * 2./3. * dt, F_uxe + dF_uxe2 * 2./3. * dt, F_uye + dF_uye2 * 2./3. * dt, F_uze  + dF_uze2 * 2./3. * dt, F_ne  + dF_ne2 * 2./3. * dt, ifmatter)    
    
         # time step:
+        timestep_start = time.time()
         F_bx += (dF_bx1 * 0.25 + dF_bx2 * 0.75) * dt ;    F_by += (dF_by1 * 0.25 + dF_by2 * 0.75) * dt
         F_ax += (dF_ax1 * 0.25 + dF_ax2 * 0.75) * dt ;    F_ay += (dF_ay1 * 0.25 + dF_ay2 * 0.75) * dt ;    F_az += (dF_az1 * 0.25 + dF_az2 * 0.75) * dt
         F_uxp += (dF_uxp1 * 0.25 + dF_uxp2 * 0.75) * dt ;    F_uyp += (dF_uyp1 * 0.25 + dF_uyp2 * 0.75) * dt ;    F_uzp += (dF_uzp1 * 0.25 + dF_uzp2 * 0.75) * dt
@@ -259,55 +339,101 @@ def sewerrun2():
         F_uxe += (dF_uxe1 * 0.25 + dF_uxe2 * 0.75) * dt ;    F_uye += (dF_uye1 * 0.25 + dF_uye2 * 0.75) * dt ;    F_uze += (dF_uze1 * 0.25 + dF_uze2 * 0.75) * dt
         F_ne += (dF_ne1 * 0.25 + dF_ne2 * 0.75) * dt
         t += dt
+        timestep_end = time.time()
 
-        # dyperdiffusion:
-        F_bx *= hypercore ;   F_by *= hypercore
-        F_ax *= hypercore ;   F_ay *= hypercore  ;   F_az *= hypercore 
-        F_uxp *= hypercore ;   F_uyp *= hypercore  ;   F_uzp *= hypercore   ;    F_np *= hypercore
-        F_uxe *= hypercore ;   F_uye *= hypercore  ;   F_uze *= hypercore   ;    F_ne *= hypercore
+        # hyperdiffusion:
+        ddiff_time_start = time.time()
+        thread_diff_ax = threading.Thread(target = multiplyby_thread, args = (F_ax, hypercore))
+        thread_diff_ay = threading.Thread(target = multiplyby_thread, args = (F_ay, hypercore))
+        thread_diff_az = threading.Thread(target = multiplyby_thread, args = (F_az, hypercore))
+        thread_diff_bx = threading.Thread(target = multiplyby_thread, args = (F_bx, hypercore))
+        thread_diff_by = threading.Thread(target = multiplyby_thread, args = (F_by, hypercore))
+        thread_diff_uxp = threading.Thread(target = multiplyby_thread, args = (F_uxp, hypercore))
+        thread_diff_uyp = threading.Thread(target = multiplyby_thread, args = (F_uyp, hypercore))
+        thread_diff_uzp = threading.Thread(target = multiplyby_thread, args = (F_uzp, hypercore))
+        thread_diff_np = threading.Thread(target = multiplyby_thread, args = (F_np, hypercore))
+        thread_diff_uxe = threading.Thread(target = multiplyby_thread, args = (F_uxe, hypercore))
+        thread_diff_uye = threading.Thread(target = multiplyby_thread, args = (F_uye, hypercore))
+        thread_diff_uze = threading.Thread(target = multiplyby_thread, args = (F_uze, hypercore))
+        thread_diff_ne = threading.Thread(target = multiplyby_thread, args = (F_ne, hypercore))
 
-        # performance control:
-        togrid_time += dtos1[0] + dtos2[0] + dtos3[0]
-        NL_time += dtos1[1] + dtos2[1] + dtos3[1]
-        
-        if t > (tstore + dtout):
+        thread_diff_ax.start() ; thread_diff_ay.start() ; thread_diff_az.start()
+        thread_diff_bx.start() ; thread_diff_by.start() # ; thread_diff_bz.start()
+        thread_diff_uxp.start() ; thread_diff_uyp.start() ; thread_diff_uzp.start()  ; thread_diff_np.start()
+        thread_diff_uxe.start() ; thread_diff_uye.start() ; thread_diff_uze.start()  ; thread_diff_ne.start()
+
+        thread_diff_ax.join() ; thread_diff_ay.join() ; thread_diff_az.join()
+        thread_diff_bx.join() ; thread_diff_by.join() # ; thread_diff_bz.join()
+        thread_diff_uxp.join() ; thread_diff_uyp.join() ; thread_diff_uzp.join()  ; thread_diff_np.join()
+        thread_diff_uxe.join() ; thread_diff_uye.join() ; thread_diff_uze.join()  ; thread_diff_ne.join()
+        # F_bx *= hypercore ;   F_by *= hypercore
+        # F_ax *= hypercore ;   F_ay *= hypercore  ;   F_az *= hypercore 
+        # F_uxp *= hypercore ;   F_uyp *= hypercore  ;   F_uzp *= hypercore   ;    F_np *= hypercore
+        # F_uxe *= hypercore ;   F_uye *= hypercore  ;   F_uze *= hypercore   ;    F_ne *= hypercore
+        ddiff_time_end = time.time()
+
+        if t > tstore:
             print("t = ", t)
-            print("togrid_time = ", togrid_time)
-            print("NL_time = ", NL_time)
-            togrid_time = 0.  ;  NL_time = 0.
             
             if ctr%picture_alias==0:
                 # Fourier spectrum:
-                clf()
-                plot(f/2./pi, F_bx.real, 'k.')
-                plot(f/2./pi, F_bx.imag, 'gx')
-                plot([f0, f0], [0.,sqrt(F_bx.real**2 + F_bx.imag**2).max()], 'r-')
-                plot([-f0, -f0], [0.,sqrt(F_bx.real**2 + F_bx.imag**2).max()], 'r-')
-                xlim(-2.*f0, 2.* f0)
-                xlabel(r'$f$')  ;   ylabel(r'$\tilde b_x$')
-                savefig('f{:05d}.png'.format(ctr))
-
+                plotting_time_start = time.time()
+                plots.fourier(f[::plotalias], F_bx[::plotalias], omega0, ctr)
+                plotting_time_end = time.time()
+                dplotting_time = plotting_time_end - plotting_time_start
+            else:
+                dplotting_time = 0.
+                
             # print(F_bx.real.max(), F_bx.real.min())
-            ax = ifft(F_ax) ;    ay = ifft(F_ay)  ;    az = ifft(F_az)
-            bx = ifft(F_bx) ;    by = ifft(F_by)  # ;    bz = ifft(F_bz)
-            uxp = ifft(F_uxp) ;    uyp = ifft(F_uyp)  ;    uzp = ifft(F_uzp)
-            np = ifft(F_np) ;       gammap = sqrt(1.+uxp**2+uyp**2+uzp**2)
-            uxe = ifft(F_uxe) ;    uye = ifft(F_uye)  ;    uze = ifft(F_uze)
-            ne = ifft(F_ne)  ;       gammae = sqrt(1.+uxe**2+uye**2+uze**2)
-            # vx = ux/gamma ; vy = uy/gamma ; vz = uz/gamma
+            # parallelized conversion to grid values:
+            time_togrid_start = time.time()
+            togrid_ax = threading.Thread(target = fft_thread, args = (F_ax, ax), kwargs = {'ifinverse': True})
+            togrid_ay = threading.Thread(target = fft_thread, args = (F_ay, ay), kwargs = {'ifinverse': True})
+            togrid_az = threading.Thread(target = fft_thread, args = (F_az, az), kwargs = {'ifinverse': True})
+            togrid_bx = threading.Thread(target = fft_thread, args = (F_bx, bx), kwargs = {'ifinverse': True})
+            togrid_by = threading.Thread(target = fft_thread, args = (F_by, by), kwargs = {'ifinverse': True})
+            togrid_uxp = threading.Thread(target = fft_thread, args = (F_uxp, uxp), kwargs = {'ifinverse': True})
+            togrid_uyp = threading.Thread(target = fft_thread, args = (F_uyp, uyp), kwargs = {'ifinverse': True})
+            togrid_uzp = threading.Thread(target = fft_thread, args = (F_uzp, uzp), kwargs = {'ifinverse': True})
+            togrid_np = threading.Thread(target = fft_thread, args = (F_np, np), kwargs = {'ifinverse': True})
+            togrid_uxe = threading.Thread(target = fft_thread, args = (F_uxe, uxe), kwargs = {'ifinverse': True})
+            togrid_uye = threading.Thread(target = fft_thread, args = (F_uye, uye), kwargs = {'ifinverse': True})
+            togrid_uze = threading.Thread(target = fft_thread, args = (F_uze, uze), kwargs = {'ifinverse': True})
+            togrid_ne = threading.Thread(target = fft_thread, args = (F_ne, ne), kwargs = {'ifinverse': True})
+
+            togrid_ax.start() ;    togrid_ay.start()  ;    togrid_az.start() 
+            togrid_bx.start() ;    togrid_by.start()  # ;    togrid_bz.start() 
+            togrid_uxp.start() ;    togrid_uyp.start()  ;    togrid_uzp.start() ; togrid_np.start()
+            togrid_uxe.start() ;    togrid_uye.start()  ;    togrid_uze.start() ; togrid_ne.start()
             
-            print("Bx = ", bx.min(), '..', bx.max())
-            print("Ey = ", ay.min(), '..', ay.max())
+            togrid_ax.join() ;    togrid_ay.join()  ;    togrid_az.join() 
+            togrid_bx.join() ;    togrid_by.join()  # ;    togrid_bz.join() 
+            togrid_uxp.join() ;    togrid_uyp.join()  ;    togrid_uzp.join() ; togrid_np.join()
+            togrid_uxe.join() ;    togrid_uye.join()  ;    togrid_uze.join() ; togrid_ne.join()
+            gammap = sqrt(1.+uxp**2+uyp**2+uzp**2)
+            gammae = sqrt(1.+uxe**2+uye**2+uze**2)
+            
+            time_togrid_end = time.time()
+            togrid_time += time_togrid_end - time_togrid_start
 
             # ASCII output
             for k in arange(size(bx)):
-                fout.write(str(t) + ' ' + str(z[k]) + str(bx[k])+'\n')
+                fout.write(str(t) + ' ' + str(z[k]) + ' ' + str(bx[k])+'\n')
             fout.flush()
+
+            # check if bx has changed:
+            # print("dBx = ", abs(bx-bx_prev).max())
+            # ii = input("B")
             
             if ctr%picture_alias==0:
-                plots.onthefly(z, (z+zlen/2.+t)%zlen-zlen/2., ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, uxp, uyp, uzp, (np/gammap,ne/gammae), ctr, t)
+                plotting_time_start = time.time()
+                plots.onthefly(z[::plotalias], (z[::plotalias]+zlen/2.+t)%zlen-zlen/2., ax0[::plotalias], ay0[::plotalias], az0[::plotalias],
+                               bx0[::plotalias], by0[::plotalias], ax[::plotalias], ay[::plotalias], az[::plotalias], bx[::plotalias], by[::plotalias],
+                               uxp[::plotalias], uyp[::plotalias], uzp[::plotalias], (np[::plotalias]/gammap[::plotalias],ne[::plotalias]/gammae[::plotalias]), ctr, t)
+                plotting_time_end = time.time()
+                dplotting_time = plotting_time_end - plotting_time_start
                 
-            tlist.append(tstore)
+            tlist.append(t-dt)
             bxlist.append(bx_prev.real + ((tstore-(t-dt))/dt) * (bx-bx_prev).real)
             Fbxlist.append(F_bx_prev + ((tstore-(t-dt))/dt) * (F_bx-F_bx_prev))
             # print(len(Fbxlist))
@@ -315,9 +441,23 @@ def sewerrun2():
             uzelist.append(uze_prev.real +  ((tstore-(t-dt))/dt) * (uze-uze_prev).real)
             nplist.append((np_prev/gammap_prev).real +  ((tstore-(t-dt))/dt) * (np/gammap - np_prev/gammap_prev).real)
             nelist.append((ne_prev/gammae_prev).real +  ((tstore-(t-dt))/dt) * (ne/gammae - ne_prev/gammae_prev).real)
-            tstore += dtout
+            tstore = t+dtout
             ctr += 1
 
+        # performance control:
+        togrid_time += dtos1[0] + dtos2[0] + dtos3[0]
+        NL_time += dtos1[1] + dtos2[1] + dtos3[1]
+        diff_time += ddiff_time_end - ddiff_time_start
+        plotting_time += dplotting_time
+        timestep_time += timestep_end - timestep_start
+        total_time = time.time() - total_time_start
+        print("total time = ", total_time, "s")
+        print("plotting time = ", plotting_time, "s")
+        print("togrid time = ", togrid_time, "s")
+        print("NL time = ", NL_time, "s")
+        print("timestep time = ", timestep_time, "s")
+        print("hyperdiffusion time = ", diff_time, "s")
+       
     fout.close()
             
     tlist = asarray(tlist)
@@ -332,7 +472,7 @@ def sewerrun2():
 
     #    print(tlist[1]-tlist[0], dtout)
     print("dtout = ", (tlist[1:]-tlist[:-1]).min(), (tlist[1:]-tlist[:-1]).max())
-    
+    # dtout = median(tlist[1:]-tlist[:-1])
     # ii = input('T')
     # print(Fbxlist.real.max(), Fbxlist.real.min())
     #
@@ -344,10 +484,10 @@ def sewerrun2():
     #    Fbxlist[k, :] -= Fbxlist_mean[k]
     
     bxlist_FF = fft(Fbxlist, axis = 0) 
-    ofreq = fftfreq(size(tlist), dtout)
+    ofreq = fftfreq(size(tlist), median(tlist[1:]-tlist[:-1]) / (2.*pi)) 
 
     print("omega = ", ofreq)
-    print("k = ", f/2./pi)
+    print("k = ", f)
     
     bxlist_FF = fftshift(bxlist_FF)
     ofreq = fftshift(ofreq)
@@ -362,13 +502,13 @@ def sewerrun2():
     #    nzhalf = nz//2
     
     print("omega = ", ofreq)
-    print("k = ", f/2./pi)
-
+    print("k = ", f / (2.*pi))
+    
     # ii = input('T')
     
     # saving the data
-    hio.okplane_hout(ofreq, f/2./pi, bxlist_FF, hname = 'okplane_Bx.hdf', dataname = 'Bx')
+    hio.okplane_hout(ofreq, f, bxlist_FF, hname = 'okplane_Bx.hdf', dataname = 'Bx')
 
-    plots.show_nukeplane(f0 = f0, bgdfield = bbgdz)
+    plots.show_nukeplane(omega0 = omega0, bgdfield = bbgdz)
     plots.maps(z, tlist, bxlist, (uzplist, uzelist), (nplist, nelist), ctr)
- 
+    plots.maps_dat()
