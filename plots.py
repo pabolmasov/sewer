@@ -10,6 +10,8 @@ cmap = 'viridis'
 
 def show_nukeplane(omega0 = 1.0, bgdfield = 0.):
 
+    bbgdz = bgdfield
+    
     omega, k, datalist = hio.okplane_hread('okplane_Bx.hdf', datanames = ['Bx'])
     bxlist_FF =  datalist[0][:,:]
     print(type(bxlist_FF[0,0]))
@@ -39,10 +41,10 @@ def show_nukeplane(omega0 = 1.0, bgdfield = 0.):
         plot(ktmp, -(ktmp - 1./(ktmp+bbgdz)), 'r:')
         plot(ktmp, -(ktmp - 1./(ktmp-bbgdz)), 'b:')        
     else:
-        plot(sqrt(1.+ktmp**2), ktmp, 'w:')
-        plot(-sqrt(1.+ktmp**2), ktmp, 'w:')
-        plot(sqrt(1.+ktmp**2), -ktmp, 'w:')
-        plot(-sqrt(1.+ktmp**2), -ktmp, 'w:')
+        plot(sqrt(1.5+ktmp**2), ktmp, 'w:')
+        plot(-sqrt(1.5+ktmp**2), ktmp, 'w:')
+        plot(sqrt(1.5+ktmp**2), -ktmp, 'w:')
+        plot(-sqrt(1.5+ktmp**2), -ktmp, 'w:')
     
     xlim(-2. * omega0 , 2. * omega0 )
     ylim(-2. * omega0, 2. * omega0)
@@ -69,7 +71,7 @@ def circorrelate(x, y):
 
     return r
 
-def maps_dat(filename = "sewerout.dat"):
+def maps_dat(filename = "sewerout.dat", zalias = 1, talias = 1):
 
     lines = loadtxt(filename)
 
@@ -81,7 +83,7 @@ def maps_dat(filename = "sewerout.dat"):
 
     clf()
     fig = figure()
-    pcolormesh(z2, t2, q)
+    pcolormesh(z2[::talias, ::zalias], t2[::talias, ::zalias], q[::talias, ::zalias])
     colorbar()
     plot(z2[0,:], z2[0,:], 'w--')
     xlabel(r'$z$') ; ylabel(r'$t$')  
@@ -90,7 +92,7 @@ def maps_dat(filename = "sewerout.dat"):
     savefig('qmap.png')
     
 
-def maps(z, tlist, bxlist, uzlist, nlist, ctr):
+def maps(z, tlist, bxlist, uzlist, nlist, ctr, zalias = 1, talias = 1):
     s = shape(nlist)
     print(s)
     # if the two species are stored separately
@@ -106,7 +108,7 @@ def maps(z, tlist, bxlist, uzlist, nlist, ctr):
     # 2D-visualization
     clf()
     fig = figure()
-    pcolormesh(z, tlist, bxlist)
+    pcolormesh(z[::zalias], tlist[::talias], bxlist[::talias, ::zalias])
     colorbar()
     plot(z, z, 'w--')
     ylim(tlist.min(), tlist.max())
@@ -115,19 +117,19 @@ def maps(z, tlist, bxlist, uzlist, nlist, ctr):
     savefig('EBmap.png')
     
     clf()
-    fig, ax = subplots(ncols=2, figsize=(8, 4))
-    pc1 = ax[0].pcolormesh(z, tlist, uzplist)
+    fig, ax = subplots(ncols=2, figsize=(10, 6))
+    pc1 = ax[0].pcolormesh(z[::zalias], tlist[::talias], uzplist[::talias, ::zalias])
     fig.colorbar(pc1, ax = ax[0])
-    pc2 = ax[1].pcolormesh(z, tlist, uzelist)
+    pc2 = ax[1].pcolormesh(z[::zalias], tlist[::talias], uzelist[::talias, ::zalias])
     fig.colorbar(pc2, ax = ax[1])
     ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$t$')  
     savefig('uzmap.png'.format(ctr))
     
     clf()
     fig, ax = subplots(ncols=2, figsize=(8, 4))
-    pc1 = ax[0].pcolormesh(z, tlist, nplist)
+    pc1 = ax[0].pcolormesh(z[::zalias], tlist[::talias], nplist[::talias, ::zalias])
     fig.colorbar(pc1, ax = ax[0])
-    pc2 = ax[1].pcolormesh(z, tlist, nelist)
+    pc2 = ax[1].pcolormesh(z[::zalias], tlist[::talias], nelist[::talias, ::zalias])
     fig.colorbar(pc2, ax = ax[1])
     ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$t$')  
     savefig('nmap.png'.format(ctr))
@@ -175,6 +177,19 @@ def onthefly(z, zshift, ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, ux, uy, uz,
     title(r'$t = '+str(round(t))+'$')
     fig.set_size_inches(12.,5.)
     savefig('u{:05d}.png'.format(ctr))
+
+    umax = uy.max()
+    utmp = (arange(100)/double(100)-0.5)* umax
+    
+    clf()
+    plot(utmp, -utmp**2/2., 'k-')
+    scatter(uy, uz, c = ux)
+    colorbar()
+    ylabel(r'$u^z$') ;  xlabel(r'$u^y$')
+    title(r'$t = '+str(round(t))+'$')
+    fig.set_size_inches(12.,5.)
+    savefig('uu{:05d}.png'.format(ctr))
+        
     clf()
     if s[0] == 2:
         plot(z, np, 'k-', label = r'$n_+$')
