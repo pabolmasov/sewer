@@ -40,3 +40,52 @@ def okplane_hread(hname, datanames = []):
             datalist.append(nukeplane[datanames[j]])
 
     return omega, k, datalist
+
+def fewout_init(hname, attrs, z, zhalf):
+    '''
+    opening a file where all the results of fewer will be stored
+    attrs is a dictionary
+    '''
+    hfile = h5py.File(hname, 'w', libver='latest')
+    glo = hfile.create_group("globals")
+
+    for key, value in attrs.items():
+        glo.attrs[key] = value
+
+    geom = hfile.create_group("geometry")
+    geom.create_dataset("z", data = z)
+    geom.create_dataset("zhalf", data = zhalf)
+
+    return hfile
+
+def fewout_dump(hfile, ctr, t, E, B, u, n):
+    '''
+    dump single snapshot record
+    '''
+    entry = entryname(ctr)
+    grp = hfile.create_group("entry"+entry)
+
+    Ex, Ey = E
+    Bx, By = B
+    ux, uy, uz = u
+    
+    grp.attrs["t"] = t
+    
+    grp.create_dataset("Ex", data= Ex)
+    grp.create_dataset("Ey", data= Ey)
+
+    grp.create_dataset("Bx", data= Bx)
+    grp.create_dataset("By", data= By)
+
+    grp.create_dataset("ux", data= ux)
+    grp.create_dataset("uy", data= uy)
+    grp.create_dataset("uz", data= uz)
+    grp.create_dataset("n", data= n) # n gamma
+
+    hfile.flush()
+    print("HDF5 output, entry"+entry+"\n", flush=True)
+
+def fewout_readdump(hfile, ctr):
+
+
+    return t, E, B, u, n

@@ -8,15 +8,17 @@ from numpy import *
 
 cmap = 'viridis'
 
+ndigits = 2 # round-off digits TODO: make this automatic
+
 def show_nukeplane(omega0 = 1.0, bgdfield = 0.):
 
     bbgdz = bgdfield
     
     omega, k, datalist = hio.okplane_hread('okplane_Bx.hdf', datanames = ['Bx'])
     bxlist_FF =  datalist[0][:,:]
-    print(type(bxlist_FF[0,0]))
-    print(type(omega[0]))
-    print(type(k[0]))
+    # print(type(bxlist_FF[0,0]))
+    # print(type(omega[0]))
+    # print(type(k[0]))
     
     babs = sqrt(bxlist_FF.real**2 + bxlist_FF.imag**2)
     # fftshift(nu)
@@ -86,7 +88,7 @@ def maps_dat(filename = "sewerout.dat", zalias = 1, talias = 1):
     pcolormesh(z2[::talias, ::zalias], t2[::talias, ::zalias], q[::talias, ::zalias])
     colorbar()
     plot(z2[0,:], z2[0,:], 'w--')
-    xlabel(r'$z$') ; ylabel(r'$t$')  
+    xlabel(r'$z$') ; ylabel(r'$\omega_{\rm p} t$')  
     ylim(t2.min(), t2.max())
     fig.set_size_inches(15.,10.)
     savefig('qmap.png')
@@ -122,7 +124,7 @@ def maps(z, tlist, bxlist, uzlist, nlist, ctr, zalias = 1, talias = 1):
     fig.colorbar(pc1, ax = ax[0])
     pc2 = ax[1].pcolormesh(z[::zalias], tlist[::talias], uzelist[::talias, ::zalias])
     fig.colorbar(pc2, ax = ax[1])
-    ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$t$')  
+    ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$\omega_{\rm p} t$')  
     savefig('uzmap.png'.format(ctr))
     
     clf()
@@ -131,12 +133,12 @@ def maps(z, tlist, bxlist, uzlist, nlist, ctr, zalias = 1, talias = 1):
     fig.colorbar(pc1, ax = ax[0])
     pc2 = ax[1].pcolormesh(z[::zalias], tlist[::talias], nelist[::talias, ::zalias])
     fig.colorbar(pc2, ax = ax[1])
-    ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$t$')  
+    ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$\omega_{\rm p} t$')  
     savefig('nmap.png'.format(ctr))
     
     close()
 
-def onthefly(z, zshift, ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, ux, uy, uz, n, ctr, t):
+def onthefly(z, zshift, ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, ux, uy, uz, n, ctr, t, omega = 1.0):
 
     s = shape(n)
     print(s)
@@ -165,7 +167,7 @@ def onthefly(z, zshift, ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, ux, uy, uz,
     axes[4].set_ylabel(r'$b_y$')
     axes[4].set_xlabel(r'$z$')  
     # legend()
-    axes[0].set_title(r'$t = '+str(round(t))+'$')
+    axes[0].set_title(r'$t = '+str(round(t, ndigits))+'$')
     fig.set_size_inches(12.,10.)
     savefig('EB{:05d}.png'.format(ctr))
     clf()
@@ -174,19 +176,20 @@ def onthefly(z, zshift, ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, ux, uy, uz,
     plot(z, uy, 'g--', label = r'$u^y$')
     xlabel(r'$z$')  ;   ylabel(r'$u^i$') 
     legend()
-    title(r'$t = '+str(round(t))+'$')
+    title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
     fig.set_size_inches(12.,5.)
     savefig('u{:05d}.png'.format(ctr))
 
     umax = uy.max()
-    utmp = (arange(100)/double(100)-0.5)* umax
+    utmp = (arange(100)/double(100)-0.5)* umax * 2.
     
     clf()
-    plot(utmp, -utmp**2/2., 'k-')
-    scatter(uy, uz, c = ux)
+    plot(utmp, utmp**2/2., 'k-')
+    scatter(uy, uz, c = z, cmap = 'hsv')
+            # (omega * (z-t)) % (2.*pi), cmap = 'hsv')
     colorbar()
     ylabel(r'$u^z$') ;  xlabel(r'$u^y$')
-    title(r'$t = '+str(round(t))+'$')
+    title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
     fig.set_size_inches(12.,5.)
     savefig('uu{:05d}.png'.format(ctr))
         
@@ -198,7 +201,7 @@ def onthefly(z, zshift, ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, ux, uy, uz,
         plot(z, n, 'k-', label = r'$n$')
     xlabel(r'$z$')  ;   ylabel(r'$n$') 
     legend()
-    title(r'$t = '+str(round(t))+'$')
+    title(r'$\omega_{\rm p} t = '+str(round(t))+'$')
     fig.set_size_inches(12.,5.)
     savefig('n{:05d}.png'.format(ctr))               
     close()
@@ -212,3 +215,16 @@ def fourier(k, F_bx, f0, ctr):
     xlim(-2.*f0, 2.* f0)
     xlabel(r'$f$')  ;   ylabel(r'$\tilde b_x$')
     savefig('f{:05d}.png'.format(ctr))
+
+def energyplot(t, e, prefix = ''):
+
+    clf()
+    plot(t, e)
+    ylim(e[1:].min(), e[e < (e[1]*100)].max())
+    yscale("log")
+    xlabel(r'$\omega_{\rm p} t$') 
+    ylabel(r'$E$')
+    savefig(prefix+'et.png')
+
+    print(prefix+": ", e[-1], " out of ", e[0], "left in the end\n elast / einit = ", e[-1]/e[0]) # systematics
+    print(prefix+": ", "energy conservation accuracy: ", e.std()/e[0]) # random error
