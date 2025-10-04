@@ -41,7 +41,7 @@ def okplane_hread(hname, datanames = []):
 
     return omega, k, datalist
 
-def fewout_init(hname, attrs, z, zhalf):
+def fewout_init(hname, attrs, z, zhalf = None):
     '''
     opening a file where all the results of fewer will be stored
     attrs is a dictionary
@@ -54,7 +54,8 @@ def fewout_init(hname, attrs, z, zhalf):
 
     geom = hfile.create_group("geometry")
     geom.create_dataset("z", data = z)
-    geom.create_dataset("zhalf", data = zhalf)
+    if zhalf is not None:
+        geom.create_dataset("zhalf", data = zhalf)
 
     return hfile
 
@@ -85,7 +86,25 @@ def fewout_dump(hfile, ctr, t, E, B, u, n):
     hfile.flush()
     print("HDF5 output, entry"+entry+"\n", flush=True)
 
-def fewout_readdump(hfile, ctr):
+def fewout_readdump(hname, ctr):
 
+    hfile = h5py.File(hname, 'r', libver='latest')
 
-    return t, E, B, u, n
+    geom=hfile["geometry"]
+    glo=hfile["globals"]
+
+    
+    z = geom["z"][:]
+    zhalf = geom["zhalf"][:]
+
+    entry = entryname(ctr)
+    data=hfile["entry"+entry]
+    t = data.attrs["t"]
+    Ex = data["Ex"][:] ;  Ey = data["Ey"][:]
+    Bx = data["Bx"][:] ;  By = data["By"][:]
+    ux = data["ux"][:] ;  uy = data["uy"][:]  ; uz = data["uz"][:]
+    n = data["n"]
+
+    hfile.close()
+    
+    return t, z, zhalf, (Ex, Ey), (Bx, By), (ux, uy, uz), n

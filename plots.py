@@ -10,6 +10,15 @@ cmap = 'viridis'
 
 ndigits = 2 # round-off digits TODO: make this automatic
 
+# store all this in the globals:
+EyA = 5.0
+omega0 = 5.0
+tmid = 3.0
+tpack = 1.0
+
+def Aleft(t):
+    return -sin(omega0 * (t-tmid)) * exp(-((t-tmid)/tpack)**2/2.) / omega0
+
 def show_nukeplane(omega0 = 1.0, bgdfield = 0.):
 
     bbgdz = bgdfield
@@ -228,3 +237,46 @@ def energyplot(t, e, prefix = ''):
 
     print(prefix+": ", e[-1], " out of ", e[0], "left in the end\n elast / einit = ", e[-1]/e[0]) # systematics
     print(prefix+": ", "energy conservation accuracy: ", e.std()/e[0]) # random error
+
+def Hcompare(hname1, hname2, nctr):
+
+    t1, z1, zhalf1, E1, B1, u1, n1 = hio.fewout_readdump(hname1, nctr)
+    Ex1, Ey1 = E1
+    Bx1, By1 = B1
+    ux1, uy1, uz1 = u1
+
+    t2, z2, zhalf2, E2, B2, u2, n2 = hio.fewout_readdump(hname2, nctr)
+    Ex2, Ey2 = E2
+    Bx2, By2 = B2
+    ux2, uy2, uz2 = u2
+
+    print("t = ", t1, " = ", t2)
+    
+    clf()
+    plot(z1, Bx1, 'k-', label = hname1)
+    plot(z2, Bx2, 'r:', label = hname2)
+    legend()
+    title(r'$t = '+str(round(t1, ndigits))+'$')
+    xlabel(r'$z$') ; ylabel(r'$B_x$')
+    savefig('compareBx{:05d}.png'.format(nctr))
+
+    print((EyA* Aleft(-z1)).max())
+    clf()
+    fig = figure()
+    plot(z1, sqrt(1.+EyA**2 * Aleft(-z1+t1+z1.min())**2)-1., 'b--', label = r'$\sqrt{1+A^2}-1$')
+    plot(z1, uy1, 'k-', label = hname1+': $u^y$')
+    plot(z2, uy2, 'k:', label = hname2+': $u^y$')
+    plot(z1, uz1, 'r-', label = hname1+': $u^z$')
+    plot(z2, uz2, 'r:', label = hname2+': $u^z$')
+    legend()
+    title(r'$t = '+str(round(t1, ndigits))+'$')
+    xlabel(r'$z$') ; ylabel(r'$u^{y, z}$')
+    fig.set_size_inches(12.,5.)
+    savefig('compareu{:05d}.png'.format(nctr))
+    close()
+    
+def compares(hname1, hname2, narr):
+
+    for n in narr:
+        Hcompare(hname1, hname2, n)
+    

@@ -31,7 +31,8 @@ import plots
 # E, B, and v are allowed to have all the three components
 
 # physical switches:
-ifmatter = True # feedback 
+ifmatter = False # feedback
+ifuz = False
 
 ndigits = 2
 
@@ -52,40 +53,38 @@ picture_alias = 30
 # injection:
 ExA = 0.0
 EyA = 5.0
-omega0 = 10.0
+omega0 = 5.0
 tpack = 1.0
 tmid = tpack * 3. 
 
-Bz = 0.
+Bz = 0.0
+Bxbgd = 0.1
+Bybgd = 0.0
+
+def Aleft(t):
+    return -sin(omega0 * (t -tmid + dz/2.)) * exp(-((t + dz/2.-tmid)/tpack)**2/2.) / omega0
 
 def Eleft(t):
-    return sin(omega0 * t) * exp(-((t-tmid)/tpack)**2/2.)
+    return (cos(omega0 * (t-tmid)) - (t-tmid)/(omega0*tpack**2) * sin(omega0 * t)) * exp(-((t-tmid)/tpack)**2/2.)
 
 def Bleft(t):
-    return sin(omega0 * (t+dz/2.)) * exp(-((t+dz-tmid)/tpack)**2/2.)
-
-def dBstep(Ex, Ey):
-    dBx = zeros(nz) ;  dBy = zeros(nz)
-    # dBx[0] = (Ey[0]-Eleft(t)*EyA) / dz
-    # dBy[0] = -(Ex[0]-Eleft(t)*ExA) / dz
-    # not updating the last cell!
-    #using extended E arrays with the BCs
-    
-    dBx = (Ey[1:]-Ey[:-1]) / dz
-    dBy = -(Ex[1:]-Ex[:-1]) / dz
-
-    return dBx, dBy
+    return Eleft(t + dz/2.)
+# sin(omega0 * (t-tmid+dz/2.)) * exp(-((t+dz/2.-tmid)/tpack)**2/2.)
 
 def phiRL(uside, v):
     # uside has the size of nz+1
     # so does v
+
+    if (size(v) != size(uside)):
+        print(size(v), size(uside))
+        ii = input("phiRL: v and u do not match")
     
     allleft = (v[1:] >= 0.) * (v[:-1] >= 0.)
     allright = (v[1:] <= 0.) * (v[:-1] <= 0.)
 
     middle = 1-(allleft|allright)
 
-    u = zeros(size(uside-1))
+    u = zeros(size(uside)-1)
 
     if allleft.sum() > 0:
         u[allleft] = (uside[:-1])[allleft]
@@ -101,19 +100,34 @@ def phiRL(uside, v):
             u[wleft] = (uside[1:])[wleft]
         if wright.sum() > 0:
             u[wright] = (uside[:-1])[wright]
-        ## (abs(v[1:]) * uside[:-1] + abs(v[:-1]) * uside[1:]) / ( abs(v[1:]) + abs(v[:-1]))
-
-    # print("left, middle, right = ", allleft.sum(), middle.sum(), allright.sum())
         
-    return u
+    return u    
+
+def dBstep(Ex, Ey):
+    dBx = zeros(nz) ;  dBy = zeros(nz) # ; v = ones(nz+1)
+    # dBx[0] = (Ey[0]-Eleft(t)*EyA) / dz
+    # dBy[0] = -(Ex[0]-Eleft(t)*ExA) / dz
+    # not updating the last cell!
+    #using extended E arrays with the BCs
     
+    dBx = (Ey[1:]-Ey[:-1]) / dz
+    dBy = -(Ex[1:]-Ex[:-1]) / dz
+
+    return dBx, dBy
+
 def dEstep(Bx, By, jx, jy, v):
 
     dEx = zeros(nz-1)
     dEy = zeros(nz-1)
 
-    dEx = - (By[1:]-By[:-1])/dz + phiRL(jx, v) # (jx[1:]+jx[:-1])/2.
-    dEy = (Bx[1:]-Bx[:-1])/dz + phiRL(jy, v) # (jy[1:]+jy[:-1])/2.
+    #    print("jx = ", size(jx), "; v = ", size(v))
+
+    dEx = - (By[1:]-By[:-1])/dz
+    dEy = (Bx[1:]-Bx[:-1])/dz
+    
+    if ifmatter:
+        dEx += phiRL(jx, v)
+        dEy += phiRL(jy, v)
     
     return dEx, dEy
 
@@ -135,8 +149,8 @@ def dvstep(ux, uy, uz, n, Ex, Ey, Bx, By):
     duy = (vz * Bx - vx * Bz)[1:-1]
     duz = (vx * By - vy * Bx)[1:-1]
    
-    dux += phiRL(Ex + dux_side, vzhalf)
-    duy += phiRL(Ey + duy_side, vzhalf)
+    dux += phiRL(dux_side + Ex, vzhalf) 
+    duy += phiRL(duy_side + Ey, vzhalf) 
     duz += phiRL(duz_side, vzhalf)
     dn = phiRL(dn_side, vzhalf)
     
@@ -144,43 +158,52 @@ def dvstep(ux, uy, uz, n, Ex, Ey, Bx, By):
 
 def sewerrun():
 
-    # HDF5 output:
-    hout = hio.fewout_init('fout.hdf5',
-                           {"ifmatter": ifmatter, "ExA": ExA, "EyA": EyA,
-                            "omega0": omega0, "tpack": tpack, "tmid": tmid},
-                           z, zhalf)
     
     # E on the edges, B in cell centres (Bz is not evolves, just postulated)
     Bx = zeros(nz)
     By = zeros(nz)
+
+    Bx += Bxbgd
+    By += Bybgd
     
     Ex = zeros(nz-1)
     Ey = zeros(nz-1)
-    Ex = zeros(nz-1)
+    #     Ex = zeros(nz)
 
     ux = zeros(nz)  ; uy = zeros(nz) ; uz = zeros(nz) ; n = ones(nz)
     
     t = 0. ; ctr = 0; figctr = 0
     
-    while(t < tmax):
+    while ((t < tmax) & (abs(Bx).max() < (EyA * 100.))):
 
-        Ex_ext = concatenate([[ExA * Eleft(t)], Ex, [By[-1]]])
-        Ey_ext = concatenate([[EyA * Eleft(t)], Ey, [-Bx[-1]]])
-        Bx_ext = concatenate([[EyA * Bleft(t)], Bx, [Bx[-1]]])
-        By_ext = concatenate([[-ExA * Bleft(t)], By, [By[-1]]])
-        ux_ext = concatenate([[ux[0]], ux, [ux[-1]]])
-        uy_ext = concatenate([[uy[0]], uy, [uy[-1]]])
-        uz_ext = concatenate([[uz[0]], uz, [uz[-1]]])
-        n_ext = concatenate([[n[0]], n, [n[-1]]])
+        if ifuz:
+            uz0 = (ExA**2 + EyA**2) * Aleft(t)**2/2.
+            uy0 = -EyA * Aleft(t)
+        else:
+            uz0 = minimum(uz[0], 0.)
+            uy0 = uy[0] - Bxbgd * dz
+            ux0 = ux[0] + Bybgd * dz
+
+        n0 = 1.
+            
+        Ex_ext = concatenate([[ExA * Eleft(t)], Ex, [(By[-1] - Bybgd + Ex[-1])/2.]])
+        Ey_ext = concatenate([[EyA * Eleft(t)], Ey, [(-Bx[-1] + Bxbgd +Ey[-1])/2.]])
+        Bx_ext = concatenate([[EyA * Bleft(t)+Bxbgd], Bx, [Bx[-1]]])
+        By_ext = concatenate([[-ExA * Bleft(t)+Bybgd], By, [By[-1]]])
+        ux_ext = concatenate([[ux0], ux, [ux[-1]]])
+        uy_ext = concatenate([[uy0], uy, [uy[-1]]])
+        uz_ext = concatenate([[uz0], uz, [uz[-1]]])
+        n_ext = concatenate([[n0], n, [n[-1]]])
      
+        gamma = sqrt(1. + ux**2 + uy**2 + uz**2 )
         if ifmatter:
-            gamma = sqrt(1. + ux**2 + uy**2 + uz**2 )
-            jx = n * ux/gamma ;     jy = n * uy/gamma ;         jz = 0.
+            # gamma = sqrt(1. + ux**2 + uy**2 + uz**2 )
+            jx = -n * ux/gamma ;     jy = -n * uy/gamma ;         jz = 0.
         else:
             jx = 0. ; jy = 0. ; jz = 0.
 
         dBx, dBy = dBstep(Ex_ext, Ey_ext)
-        dEx, dEy = dEstep(Bx, By, jx_ext, jy_ext, uz_ext)
+        dEx, dEy = dEstep(Bx, By, jx, jy, uz/gamma)
         dux, duy, duz, dn = dvstep(ux_ext, uy_ext, uz_ext, n_ext, Ex_ext, Ey_ext, Bx_ext, By_ext)
 
         # preliminary time step
@@ -188,23 +211,35 @@ def sewerrun():
         Ex1 = Ex + dEx * dt/2. ; Ey1 = Ey + dEy * dt/2.
         ux1 = ux + dux * dt/2. ; uy1 = uy + duy * dt/2. ; uz1 = uz +  duz * dt/2. ; n1 = n + dn * dt/2.
 
-        Ex_ext = concatenate([[ExA * Eleft(t+dt/2.)], Ex1, [By1[-1]]])
-        Ey_ext = concatenate([[EyA * Eleft(t+dt/2.)], Ey1, [-Bx1[-1]]])
-        Bx_ext = concatenate([[EyA * Bleft(t+dt/2.)], Bx1, [Bx1[-1]]])
-        By_ext = concatenate([[-ExA * Bleft(t+dt/2.)], By1, [By1[-1]]])
-        ux_ext = concatenate([[ux1[0]], ux1, [ux1[-1]]])
-        uy_ext = concatenate([[uy1[0]], uy1, [uy1[-1]]])
-        uz_ext = concatenate([[uz1[0]], uz1, [uz1[-1]]])
-        n_ext = concatenate([[n1[0]], n1, [n1[-1]]])
+        if ifuz:
+            uz0 = (ExA**2 + EyA**2) * Aleft(t+dt/2.)**2/2.
+            uy0 = -EyA * Aleft(t+dt/2.)
+        else:
+            # uz0 = uz1[0] # minimum(uz1[0], 0.)
+            # uy0 = uy1[0] # * 0.
+            #            if abs(Bxbgd) > 0.:
+            uz0 = minimum(uz1[0], 0.)
+            uy0 = uy1[0] - Bxbgd * dz
+            ux0 = ux1[0] + Bybgd * dz
+            
+        Ex_ext = concatenate([[ExA * Eleft(t+dt/2.)], Ex1, [(By1[-1] - Bybgd + Ex1[-1])/2.]])
+        Ey_ext = concatenate([[EyA * Eleft(t+dt/2.)], Ey1, [(-Bx1[-1] +  Bxbgd +Ey1[-1])/2.]])
+        Bx_ext = concatenate([[EyA * Bleft(t+dt/2.)+Bxbgd], Bx1, [Bx1[-1]]])
+        By_ext = concatenate([[-ExA * Bleft(t+dt/2.)+Bybgd], By1, [By1[-1]]])
+        ux_ext = concatenate([[ux0], ux1, [ux1[-1]]])
+        uy_ext = concatenate([[uy0], uy1, [uy1[-1]]])
+        uz_ext = concatenate([[uz0], uz1, [uz1[-1]]])
+        n_ext = concatenate([[n0], n1, [n1[-1]]])
         
+        gamma = sqrt(1. + ux**2 + uy**2 + uz**2 )
         if ifmatter:
-            gamma = sqrt(1. + ux1**2 + uy1**2 + uz1**2 )
-            jx = n1 * ux1/gamma ;     jy = n1 * uy1/gamma ;         jz = 0.
+            # gamma = sqrt(1. + ux**2 + uy**2 + uz**2 )
+            jx = -n * ux/gamma ;     jy = -n * uy/gamma ;         jz = 0.
         else:
             jx = 0. ; jy = 0. ; jz = 0.
 
         dBx, dBy = dBstep(Ex_ext, Ey_ext)
-        dEx, dEy = dEstep(Bx1, By1, jx, jy, uz)
+        dEx, dEy = dEstep(Bx1, By1, jx, jy, uz/gamma)
         dux, duy, duz, dn = dvstep(ux_ext, uy_ext, uz_ext, n_ext, Ex_ext, Ey_ext, Bx_ext, By_ext)
 
         # preliminary time step
@@ -214,29 +249,52 @@ def sewerrun():
 
         t += dt ; ctr += 1
         if ctr%picture_alias==0:
+            
+            # print("|By| <= ", abs(By).max())
+            # print("|Ex| <= ", abs(Ex).max())
             clf()
+            fig = figure()
+            if abs(Bxbgd) > 0.:
+                plot(z, Bx*0. + Bxbgd, 'k:', label = r'$B_x^{\rm bgd}$')
             plot(z, Bx, 'k-', label = r'$B_x$')
-            plot(zhalf, Ey, 'r:', label = r'$E_y$')
+            if abs(By).max() > 0.:
+                plot(z, By, 'k:', label = r'$B_y$')
+            plot(zhalf, Ey, 'r-', label = r'$E_y$')
+            if abs(Ex).max() > 0.:
+                plot(zhalf, Ex, 'r:', label = r'$E_x$')
             plot(zhalf[0]-dz, EyA * Eleft(t), 'bo', label = r'$E_y$ BC')
             xlabel(r'$z$') 
             title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
             legend()
+            fig.set_size_inches(12.,5.)
             savefig('EB{:05d}.png'.format(figctr))
             clf()
             plot(z, uy, 'k-', label = r'$u^y$')
+            if abs(ux).max() > 0.:
+                plot(z, ux, 'g--', label = r'$u^x$')
             plot(z, uz, 'r:', label = r'$u^z$')
             xlabel(r'$z$') 
             title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
             legend()
+            fig.set_size_inches(12.,5.)
             savefig('uyz{:05d}.png'.format(figctr))
             clf()
             plot(uy, uy**2/2., 'r-')
-            plot(uy, uz, 'k.')
+            scatter(uy, uz, c = z)
+            cb = colorbar()
+            cb.set_label(r'$z$')
             xlabel(r'$u^y$')   ;   ylabel(r'$u^z$') 
             title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
             savefig('GO{:05d}.png'.format(figctr))
-
+            close()
+            
             # HDF5 dump:
+            if figctr == 0:
+                hout = hio.fewout_init('fout.hdf5',
+                                       {"ifmatter": ifmatter, "ExA": ExA, "EyA": EyA,
+                                        "omega0": omega0, "tpack": tpack, "tmid": tmid, "Bz": Bz, "Bx": Bxbgd},
+                                       z, zhalf = zhalf)
+
             hio.fewout_dump(hout, figctr, t, (Ex, Ey), (Bx, By), (ux, uy, uz), n)            
             # print(figctr)
             ctr = 0 ; figctr += 1
