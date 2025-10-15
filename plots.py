@@ -11,10 +11,12 @@ cmap = 'viridis'
 ndigits = 2 # round-off digits TODO: make this automatic
 
 # store all this in the globals:
-EyA = 5.0
-omega0 = 5.0
-tmid = 3.0
-tpack = 1.0
+EyA = 20.0
+omega0 = 20.0
+
+tpack = sqrt(2.5)
+tmid = tpack * 10.
+tmax = 3. * tmid
 
 def Aleft(t):
     return -sin(omega0 * (t-tmid)) * exp(-((t-tmid)/tpack)**2/2.) / omega0
@@ -238,7 +240,41 @@ def energyplot(t, e, prefix = ''):
     print(prefix+": ", e[-1], " out of ", e[0], "left in the end\n elast / einit = ", e[-1]/e[0]) # systematics
     print(prefix+": ", "energy conservation accuracy: ", e.std()/e[0]) # random error
 
-def Hcompare(hname1, hname2, nctr):
+def Bosc(hname, narray):
+
+    nnarray = size(narray)
+    tar = zeros(nnarray) ; uyar = zeros(nnarray) ; uzar = zeros(nnarray)
+
+    for k in arange(nnarray):
+        t, z, zhalf, E, B, u, n = hio.fewout_readdump(hname, narray[k])
+        ux, uy, uz = u
+        nz = size(z)
+        tar[k] = t
+        uyar[k]  = uy[nz//2]
+        uzar[k]  = uz[nz//2]
+
+    Bxbgd = 1.0
+    clf()
+    fig = figure()
+    plot(tar, 0.1 * cos(Bxbgd*tar), 'g:', label = r'$u^y$ expectations')
+    plot(tar, -0.1 * sin(Bxbgd*tar), 'b-.', label = r'$u^z$ expectations')
+    plot(tar, uyar, 'k.', label = r'$u^y$')
+    plot(tar, uzar, 'rx', label = r'$u^z$')
+    legend()
+    xlabel(r'$t$')  ;  ylabel(r'$u^{y, z}(z=0)$')
+    fig.set_size_inches(12., 5.)
+    fig.tight_layout()
+    savefig('Bosc.png')
+    clf()
+    plot(0.1 * cos(Bxbgd*tar), -0.1 * sin(Bxbgd*tar), 'k-')
+    scatter(uyar, uzar, c = tar*Bxbgd)
+    cb = colorbar()
+    cb.set_label(r'$\omega_{\rm c} t$')
+    xlabel(r'$u^y$')  ;  ylabel(r'$u^{z}$')
+    savefig('Bosc_circle.png')
+    
+        
+def Hcompare(hname1, hname2, nctr, zoomin = 0.):
 
     t1, z1, zhalf1, E1, B1, u1, n1 = hio.fewout_readdump(hname1, nctr)
     Ex1, Ey1 = E1
@@ -256,6 +292,10 @@ def Hcompare(hname1, hname2, nctr):
     plot(z1, Bx1, 'k-', label = hname1)
     plot(z2, Bx2, 'r:', label = hname2)
     legend()
+    if zoomin > 0.:
+        zcen = t - tmid + z.min()      
+        xlim(zcen - (zcen-z1.min())/zoomin, zcen + (z1.max()-zcen)/zoomin)
+        ylim(-sqrt(Bx1**2+Bx2**2).max(), sqrt(Bx1**2+Bx2**2).max())
     title(r'$t = '+str(round(t1, ndigits))+'$')
     xlabel(r'$z$') ; ylabel(r'$B_x$')
     savefig('compareBx{:05d}.png'.format(nctr))
@@ -263,11 +303,14 @@ def Hcompare(hname1, hname2, nctr):
     print((EyA* Aleft(-z1)).max())
     clf()
     fig = figure()
-    plot(z1, sqrt(1.+EyA**2 * Aleft(-z1+t1+z1.min())**2)-1., 'b--', label = r'$\sqrt{1+A^2}-1$')
+    # plot(z1, sqrt(1.+EyA**2 * Aleft(-z1+t1+z1.min())**2)-1., 'b--', label = r'$\sqrt{1+A^2}-1$')
     plot(z1, uy1, 'k-', label = hname1+': $u^y$')
     plot(z2, uy2, 'k:', label = hname2+': $u^y$')
     plot(z1, uz1, 'r-', label = hname1+': $u^z$')
     plot(z2, uz2, 'r:', label = hname2+': $u^z$')
+    if zoomin > 0.:
+        xlim(zcen - (zcen-z1.min())/zoomin, zcen + (z1.max()-zcen)/zoomin)
+        ylim(-sqrt(uy1**2+uy2**2).max(), sqrt(uy1**2+uy2**2).max())
     legend()
     title(r'$t = '+str(round(t1, ndigits))+'$')
     xlabel(r'$z$') ; ylabel(r'$u^{y, z}$')
@@ -278,5 +321,5 @@ def Hcompare(hname1, hname2, nctr):
 def compares(hname1, hname2, narr):
 
     for n in narr:
-        Hcompare(hname1, hname2, n)
+        Hcompare(hname1, hname2, n, zoomin = 0.0)
     
