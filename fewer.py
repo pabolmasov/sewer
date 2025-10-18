@@ -58,9 +58,9 @@ ndigits = 2 # for output, t is truncated to ndigits after .
 # TODO: energy check
 
 # mesh:
-nz = 1024  # per core
+nz = 2048  # per core
 nc = csize # number of cores
-zlen = 20.
+zlen = 40.
 zbuffer = 2.0
 z = (arange(nz*nc) / double(nz*nc) - 0.5) * zlen
 dz = z[1] - z[0]
@@ -69,7 +69,7 @@ if csize > 1:
 
 zhalf = z - dz/2. # (z[1:]+z[:-1])/2. # edges
 z_ext = concatenate([[z[0]-dz], z, [z[-1]+dz]])
-    
+
 print(z_ext.min(), z_ext.max())
 print("dz = ", dz)
 
@@ -79,7 +79,9 @@ print("core ", crank, ": z_ext = ", z_ext[0], "..", z_ext[-1])
 dtCFL = dz * 0.1 # CFL in 1D should be not very small
 dtfac = 0.01
 dtout = 0.01
-picture_alias = 100
+ifplot = True
+hdf_alias = 100
+picture_alias = 300
 
 # injection:
 ExA = 0.0
@@ -387,14 +389,14 @@ def dsteps(t, E, B, u, n):
 def sewerrun():
     
     # E on the edges, B in cell centres (Bz is not evolves, just postulated)
-    Bx = -EyA * Bleft(z.min()-dz-z) # z.min()-dz is the coord of the ghost zone
-    By = ExA * Bleft(z.min()-dz -z)
+    Bx = -EyA * Bleft(-zlen/2.-dz-z) # minimal z-dz is the coord of the ghost zone
+    By = ExA * Bleft(-zlen/2.-dz -z)
 
     Bx += Bxbgd
     By += Bybgd
     
-    Ex = ExA * Eleft(z.min()-dz-zhalf) # ghost zone + dz/2.
-    Ey = EyA * Eleft(z.min()-dz-zhalf)
+    Ex = ExA * Eleft(-zlen/2.-dz-zhalf) # ghost zone + dz/2.
+    Ey = EyA * Eleft(-zlen/2.-dz-zhalf)
     #     Ex = zeros(nz)
 
     ux = zeros(nz)  ; uy = zeros(nz) ; uz = zeros(nz) ; n = ones(nz)
@@ -411,7 +413,7 @@ def sewerrun():
     paelist = [] # particle energy
     emelist = [] # EM fields energy
     
-    t = 0. ; ctr = 0; figctr = 0
+    t = 0. ; ctr = 0; plot_ctr = 0 ; hdf_ctr = 0
     
     while ((t < tmax) & (abs(Bx).max() < ( 1e6/omega0)) & (abs(uy).max() < ( 1e6/omega0)) & isfinite(n.max())):
 
@@ -449,8 +451,11 @@ def sewerrun():
         n = maximum(n, nmin)
         
         t += dt ; ctr += 1
-        if ctr%picture_alias==0:
-            # we need to merge the arrays
+        hdfflag = (ctr%hdf_alias==0)
+        plotflag = ifplot & (ctr%picture_alias==0)
+        
+        if hdfflag | plotflag:            
+            # we need to merge the arrays            
             if crank > first:
                 plotpack = {"z": z, "Bx": Bx, "By": By, "Ex": Ex, "Ey": Ey, "ux": ux, "uy": uy, "uz": uz, "n": n}
                 comm.send(plotpack, dest = first, tag = crank)
@@ -491,70 +496,74 @@ def sewerrun():
             
                 print("mlist = ", mtot)
                 print("E_PA + E_EM <= ", epatot, " + ", emetot, " = ", epatot + emetot)
-                clf()
-                fig = figure()
-                if abs(Bxbgd) > 0.:
-                    plot(zplot, Bxplot*0. + Bxbgd, 'k:', label = r'$B_x^{\rm bgd}$')
-                plot(zplot, Bxplot, 'k-', label = r'$B_x$')
-                if abs(Byplot).max() > 0.:
-                    plot(zplot, Byplot, 'k:', label = r'$B_y$')
-                plot(zplot_half, Eyplot, 'r-', label = r'$E_y$')
-                if abs(Explot).max() > 0.:
-                    plot(zplot_half, Ex, 'r:', label = r'$E_x$')
-                plot(zplot_half[0]-dz, EyA * Eleft(t), 'bo', label = r'$E_y$ BC')
-                xlabel(r'$z$') 
-                title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
-                legend()
-                fig.set_size_inches(12.,5.)
-                savefig('EB{:05d}.png'.format(figctr))
-                clf()
-                plot(zplot, uyplot, 'k-', label = r'$u^y$')
-                if abs(uxplot).max() > 0.:
-                    plot(zplot, uxplot, 'g--', label = r'$u^x$')
-                plot(zplot, uzplot, 'r:', label = r'$u^z$')
-                xlabel(r'$z$') 
-                title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
-                legend()
-                fig.set_size_inches(12.,5.)
-                savefig('uyz{:05d}.png'.format(figctr))
-                
-                uytmp = arange(100)/100. * (uyplot.max() - uyplot.min()) + uyplot.min()
 
-                clf()
-                plot(uytmp, uytmp**2/2., 'r-')
-                scatter(uyplot, uzplot, c = zplot)
-                cb = colorbar()
-                cb.set_label(r'$z$')
-                xlabel(r'$u^y$')   ;   ylabel(r'$u^z$')
-                # xlim(-15, -10) ; ylim(-0.1,0.1)
-                title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
-                savefig('GO{:05d}.png'.format(figctr))
-                clf()
-                plot(zplot, 1.+(Aleft(t-zplot+zplot.min())*EyA)**2/2., 'r:')
-                plot(zplot[nplot>0.], nplot[nplot>0.], '-k')
-                # cb = colorbar()
-                # cb.set_label(r'$z$')
-                xlabel(r'$z$')   ;   ylabel(r'$n_{\rm p}$') 
-                title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
-                savefig('n{:05d}.png'.format(figctr))
-                close()
+                if plotflag: 
+                    clf()
+                    fig = figure()
+                    if abs(Bxbgd) > 0.:
+                        plot(zplot, Bxplot*0. + Bxbgd, 'k:', label = r'$B_x^{\rm bgd}$')
+                    plot(zplot, Bxplot, 'k-', label = r'$B_x$')
+                    if abs(Byplot).max() > 0.:
+                        plot(zplot, Byplot, 'k:', label = r'$B_y$')
+                    plot(zplot_half, Eyplot, 'r-', label = r'$E_y$')
+                    if abs(Explot).max() > 0.:
+                        plot(zplot_half, Ex, 'r:', label = r'$E_x$')
+                    plot(zplot_half[0]-dz, EyA * Eleft(t), 'bo', label = r'$E_y$ BC')
+                    xlabel(r'$z$') 
+                    title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+                    legend()
+                    fig.set_size_inches(12.,5.)
+                    savefig('EB{:05d}.png'.format(plot_ctr))
+                    clf()
+                    plot(zplot, uyplot, 'k-', label = r'$u^y$')
+                    if abs(uxplot).max() > 0.:
+                        plot(zplot, uxplot, 'g--', label = r'$u^x$')
+                    plot(zplot, uzplot, 'r:', label = r'$u^z$')
+                    xlabel(r'$z$') 
+                    title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+                    legend()
+                    fig.set_size_inches(12.,5.)
+                    savefig('uyz{:05d}.png'.format(plot_ctr))
+                
+                    uytmp = arange(100)/100. * (uyplot.max() - uyplot.min()) + uyplot.min()
+
+                    clf()
+                    plot(uytmp, uytmp**2/2., 'r-')
+                    scatter(uyplot, uzplot, c = zplot)
+                    cb = colorbar()
+                    cb.set_label(r'$z$')
+                    xlabel(r'$u^y$')   ;   ylabel(r'$u^z$')
+                    # xlim(-15, -10) ; ylim(-0.1,0.1)
+                    title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+                    savefig('GO{:05d}.png'.format(plot_ctr))
+                    clf()
+                    plot(zplot, 1.+(Aleft(t-zplot+zplot.min())*EyA)**2/2., 'r:')
+                    plot(zplot[nplot>0.], nplot[nplot>0.], '-k')
+                    # cb = colorbar()
+                    # cb.set_label(r'$z$')
+                    xlabel(r'$z$')   ;   ylabel(r'$n_{\rm p}$') 
+                    title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+                    savefig('n{:05d}.png'.format(plot_ctr))
+                    close()
+                    plot_ctr += 1
             
                 # HDF5 dump:
-                if figctr == 0:
-                    hout = hio.fewout_init('fout.hdf5',
-                                           {"ifmatter": ifmatter, "ExA": ExA, "EyA": EyA,
-                                            "omega0": omega0, "tpack": tpack, "tmid": tmid, "Bz": Bz, "Bx": Bxbgd},
-                                           zplot, zhalf = zplot_half)
-                    # text output for mass and energies
-                    totout = open("totals.dat", 'w+')
-                    totout.write("# t -- m -- EM energy -- PA energy \n")
+                if hdfflag:
+                    if hdf_ctr == 0:
+                        hout = hio.fewout_init('fout.hdf5',
+                                               {"ifmatter": ifmatter, "ExA": ExA, "EyA": EyA,
+                                                "omega0": omega0, "tpack": tpack, "tmid": tmid, "Bz": Bz, "Bx": Bxbgd},
+                                               zplot, zhalf = zplot_half)
+                        # text output for mass and energies
+                        totout = open("totals.dat", 'w+')
+                        totout.write("# t -- m -- EM energy -- PA energy \n")
 
-                hio.fewout_dump(hout, figctr, t, (Explot, Eyplot), (Bxplot, Byplot), (uxplot, uyplot, uzplot), nplot)
-                totout.write(str(t)+" "+str(mtot)+" "+str(emetot)+" "+str(epatot)+"\n")
-                totout.flush()
+                    hio.fewout_dump(hout, hdf_ctr, t, (Explot, Eyplot), (Bxplot, Byplot), (uxplot, uyplot, uzplot), nplot)
+                    totout.write(str(t)+" "+str(mtot)+" "+str(emetot)+" "+str(epatot)+"\n")
+                    totout.flush()
                 
-                print("dt = ", dt)
-            ctr = 0 ; figctr += 1
+                    print("dt = ", dt)
+                    hdf_ctr += 1
 
     if crank == first:
         hout.close()
@@ -564,34 +573,35 @@ def sewerrun():
         totout.close()
             
         # final mass and energy plots
-        clf()
-        plot(tlist, mlist, 'k.')
-        xlabel(r'$t$')  ;  ylabel(r'$M_{\rm tot}$')
-        savefig('m.png')
-        clf()
-        plot(tlist, emelist, 'k.', label = 'EM')
-        plot(tlist, paelist, 'rx', label = 'particles')
-        plot(tlist, paelist+emelist, 'g--', label = 'total')
-        ylim((paelist+emelist).max()*1e-5, (paelist+emelist).max()*2.)
-        yscale('log')
-        legend()
-        xlabel(r'$t$')  ;  ylabel(r'$E$')
-        savefig('e.png')
-        if ifnowave:
+        if ifplot:
             clf()
-            plot(tlist, 0.1 * cos(Bxbgd*tlist), 'g:')
-            plot(tlist, -0.1 * sin(Bxbgd*tlist), 'b-.')
-            plot(tlist, uylist, 'k.', label = r'$u^y$')
-            plot(tlist, uzlist, 'rx', label = r'$u^z$')
+            plot(tlist, mlist, 'k.')
+            xlabel(r'$t$')  ;  ylabel(r'$M_{\rm tot}$')
+            savefig('m.png')
+            clf()
+            plot(tlist, emelist, 'k.', label = 'EM')
+            plot(tlist, paelist, 'rx', label = 'particles')
+            plot(tlist, paelist+emelist, 'g--', label = 'total')
+            ylim((paelist+emelist).max()*1e-5, (paelist+emelist).max()*2.)
+            yscale('log')
             legend()
-            xlabel(r'$t$')  ;  ylabel(r'$u^{y, z}(z=0)$')
-            savefig('uosc.png')
-            clf()
-            plot(0.1 * cos(Bxbgd*tlist), -0.1 * sin(Bxbgd*tlist), 'k-')
-            scatter(uylist, uzlist, c = tlist*Bxbgd)
-            cb = colorbar()
-            cb.set_label(r'$\omega_{\rm c} t$')
-            xlabel(r'$u^y$')  ;  ylabel(r'$u^{z}$')
-            savefig('uosc_circle.png')
+            xlabel(r'$t$')  ;  ylabel(r'$E$')
+            savefig('e.png')
+            if ifnowave:
+                clf()
+                plot(tlist, 0.1 * cos(Bxbgd*tlist), 'g:')
+                plot(tlist, -0.1 * sin(Bxbgd*tlist), 'b-.')
+                plot(tlist, uylist, 'k.', label = r'$u^y$')
+                plot(tlist, uzlist, 'rx', label = r'$u^z$')
+                legend()
+                xlabel(r'$t$')  ;  ylabel(r'$u^{y, z}(z=0)$')
+                savefig('uosc.png')
+                clf()
+                plot(0.1 * cos(Bxbgd*tlist), -0.1 * sin(Bxbgd*tlist), 'k-')
+                scatter(uylist, uzlist, c = tlist*Bxbgd)
+                cb = colorbar()
+                cb.set_label(r'$\omega_{\rm c} t$')
+                xlabel(r'$u^y$')  ;  ylabel(r'$u^{z}$')
+                savefig('uosc_circle.png')
 
 sewerrun()
