@@ -60,7 +60,7 @@ ndigits = 2 # for output, t is truncated to ndigits after .
 # mesh:
 nz = 2048  # per core
 nc = csize # number of cores
-zlen = 40.
+zlen = 100.
 zbuffer = 2.0
 z = (arange(nz*nc) / double(nz*nc) - 0.5) * zlen
 dz = z[1] - z[0]
@@ -77,7 +77,7 @@ print("core ", crank, ": z_ext = ", z_ext[0], "..", z_ext[-1])
     
 # time
 dtCFL = dz * 0.1 # CFL in 1D should be not very small
-dtfac = 0.01
+dtfac = 0.005
 dtout = 0.01
 ifplot = True
 hdf_alias = 100
@@ -85,8 +85,8 @@ picture_alias = 300
 
 # injection:
 ExA = 0.0
-EyA = 20.0
-omega0 = 20.0
+EyA = 30.0
+omega0 = 10.0
 tpack = sqrt(2.5)
 tmid = tpack * 10. # the passage of the wave through z=0
 tmax = 3. * tmid
@@ -100,7 +100,7 @@ Bxbgd = 0.0
 Bybgd = 0.0
 
 def Aleft(t):
-    return -sin(omega0 * (t -tmid - dz/2.)) * exp(-((t + dz/2.-tmid)/tpack)**2/2.) / omega0
+    return -sin(omega0 * (t -tmid - dz/2.)) * exp(-((t - dz/2.-tmid)/tpack)**2/2.) / omega0
 
 def Eleft(t):
     return (cos(omega0 * (t-tmid)) - (t-tmid)/(omega0*tpack**2) * sin(omega0 * (t-tmid))) * exp(-((t-tmid)/tpack)**2/2.)
@@ -286,10 +286,16 @@ def dsteps(t, E, B, u, n):
         Ey0 = EyA * Eleft(t)
         Bx0 = EyA * Bleft(t)+Bxbgd
         By0 = -ExA * Bleft(t)+Bybgd
-        uz0 = uz[0] # minimum(uz[0], 0.)
-        uy0 = uy[0] # - (Bxbgd-EyA*Eleft(t) * 0.) * dz
-        ux0 = ux[0] # + (Bybgd+ExA*Eleft(t) * 0.) * dz
-        n0 = n[0]
+        if ifuz:
+            uz0 = (ExA**2 + EyA**2) * Aleft(t+dz/2.)**2/2.
+            uy0 = EyA * Aleft(t+dz/2.) - Bxbgd * dz
+            ux0 = ExA * Aleft(t+dz/2.) + Bybgd * dz
+            n0 = 0. # sqrt(1.+uy0**2+ux0**2+uz0**2)
+        else:
+            uz0 = uz[0] # minimum(uz[0], 0.)
+            uy0 = uy[0] # - (Bxbgd-EyA*Eleft(t) * 0.) * dz
+            ux0 = ux[0] # + (Bybgd+ExA*Eleft(t) * 0.) * dz
+            n0 = n[0]
     else:
         leftpack = {"Ex": Ex[0], "Ey": Ey[0], "Bx": Bx[0], "By": By[0],
                     "ux": ux[0], "uy": uy[0], "uz": uz[0], "n": n[0]}
@@ -415,7 +421,7 @@ def sewerrun():
     
     t = 0. ; ctr = 0; plot_ctr = 0 ; hdf_ctr = 0
     
-    while ((t < tmax) & (abs(Bx).max() < ( 1e6/omega0)) & (abs(uy).max() < ( 1e6/omega0)) & isfinite(n.max())):
+    while ((t < tmax) & (abs(Bx).max() < ( 1e6/omega0)) & (abs(uy).max() < ( 1e6/omega0)) & (n.max() < 10.) & isfinite(n.max())):
 
         # first step in RK4
         dE, dB, du, dn1, dt1 = dsteps(t, (Ex, Ey), (Bx, By), (ux, uy, uz), n)
@@ -536,6 +542,15 @@ def sewerrun():
                     # xlim(-15, -10) ; ylim(-0.1,0.1)
                     title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
                     savefig('GO{:05d}.png'.format(plot_ctr))
+                    ww = (abs(uyplot) > 1e-5)
+                    if ww.sum() > 1:
+                        clf()
+                        plot(zplot[ww], Aleft(t-zplot[ww]-zlen/2.-dz/2.)*EyA, 'b-')
+                        plot(zplot[ww], uyplot[ww], 'k.')
+                        xlabel(r'$z$')   ;   ylabel(r'$u^y$') 
+                        title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+                        savefig('uGO{:05d}.png'.format(plot_ctr))
+                    
                     clf()
                     plot(zplot, 1.+(Aleft(t-zplot+zplot.min())*EyA)**2/2., 'r:')
                     plot(zplot[nplot>0.], nplot[nplot>0.], '-k')
