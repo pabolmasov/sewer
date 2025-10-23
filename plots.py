@@ -11,10 +11,10 @@ cmap = 'viridis'
 ndigits = 2 # round-off digits TODO: make this automatic
 
 # store all this in the globals:
-EyA = 20.0
-omega0 = 20.0
+EyA = 100.0
+omega0 = 10.0
 
-tpack = sqrt(2.5)
+tpack = sqrt(2.5)*2.
 tmid = tpack * 10.
 tmax = 3. * tmid
 
@@ -273,6 +273,43 @@ def Bosc(hname, narray):
     xlabel(r'$u^y$')  ;  ylabel(r'$u^{z}$')
     savefig('Bosc_circle.png')
     
+def uGOcompare(hname, narr):
+    snize = size(narr)
+
+    if snize > 1:
+        for k in arange(snize):
+            uGOcompare(hname, narr[k])
+    else:
+        t1, z1, zhalf1, E1, B1, u1, n1 = hio.fewout_readdump(hname, narr)
+        Ex1, Ey1 = E1
+        Bx1, By1 = B1
+        ux1, uy1, uz1 = u1
+
+        ww = (abs(uy1) > 1e-8)
+        dz = z1[1]-z1[0]
+        
+        clf()
+        fig = figure()
+        plot(z1, uy1, 'ko', label = hname+': $u^y$', mfc = 'none')
+        plot(z1, Aleft(t1-z1+z1.min()-dz/2.)*EyA, 'b-', label = r'$-A$')
+        legend()
+        title(r'$\omega_{\rm p} t = '+str(round(t1, ndigits))+'$')
+        ylim(-EyA/omega0, EyA/omega0)
+        xlabel(r'$z$') ; ylabel(r'$u^y$')
+        fig.set_size_inches(12.,5.)
+        savefig('ucomp{:05d}.png'.format(narr))
+        clf()
+        fig = figure()
+        plot(z1, uz1, 'ko', label = hname+': $u^z$', mfc = 'none')
+        plot(z1, (Aleft(t1-z1+z1.min()-dz/2.)*EyA)**2/2., 'b-', label = r'$A^2/2$')
+        legend()
+        ylim(-(EyA/omega0)**2/10., (EyA/omega0)**2/2.)
+        title(r'$\omega_{\rm p} t = '+str(round(t1, ndigits))+'$')
+        xlabel(r'$z$') ; ylabel(r'$u^z$')
+        fig.set_size_inches(12.,5.)
+        savefig('vcomp{:05d}.png'.format(narr))
+        close()
+        print(hname, "entry ", narr, " finished")
         
 def Hcompare(hname1, hname2, nctr, zoomin = 0.):
 
@@ -287,13 +324,15 @@ def Hcompare(hname1, hname2, nctr, zoomin = 0.):
     ux2, uy2, uz2 = u2
 
     print("t = ", t1, " = ", t2)
+
+    print(abs(ux1).max(), abs(ux2).max())
     
     clf()
     plot(z1, Bx1, 'k-', label = hname1)
     plot(z2, Bx2, 'r:', label = hname2)
     legend()
     if zoomin > 0.:
-        zcen = t - tmid + z.min()      
+        zcen = t1 - tmid + z1.min()      
         xlim(zcen - (zcen-z1.min())/zoomin, zcen + (z1.max()-zcen)/zoomin)
         ylim(-sqrt(Bx1**2+Bx2**2).max(), sqrt(Bx1**2+Bx2**2).max())
     title(r'$t = '+str(round(t1, ndigits))+'$')
