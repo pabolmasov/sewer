@@ -42,7 +42,7 @@ import plots
 # E, B, and v are allowed to have all the three components
 
 # physical switches:
-ifmatter = False # feedback
+ifmatter = True # feedback
 ifuz = False # left BC for the velocities; without MF, True works much better
 ifnowave = False # no EM wave, but the initial velocities are perturbed
 ifpar = False
@@ -61,7 +61,7 @@ ndigits = 2 # for output, t is truncated to ndigits after .
 # TODO: energy check
 
 # mesh:
-nz = 2048  # per core
+nz = 1024  # per core
 nc = csize # number of cores
 zlen = 60.
 zbuffer = 2.0
@@ -90,11 +90,11 @@ picture_alias = 300
 ExA = 0.0
 EyA = 2.0
 omega0 = 10.0
-tpack = sqrt(2.5)
+tpack = sqrt(6.)
 tmid = tpack * 10. # the passage of the wave through z=0
 tmax = 4. * tmid
 
-tstart = 40.
+tstart = 30.
 
 print("tmax = ", tmax)
 
@@ -103,7 +103,7 @@ if ifnowave:
     ExA = 0.
 
 Bz = 0.0
-Bxbgd = 1.0
+Bxbgd = 8.0
 Bybgd = 0.0
 
 def Aleft(t):
@@ -633,7 +633,7 @@ def sewerrun():
                         totout = open("totals.dat", 'w+')
                         totout.write("# t -- m -- EM energy -- PA energy \n")
 
-                    hio.fewout_dump(hout, hdf_ctr, t, (Explot, Eyplot), (Bxplot+Bxbgd*Bbuffermod(zplot)), Byplot+Bybgd*Bbuffermod(zplot)), (uxplot, uyplot, uzplot), nplot)
+                    hio.fewout_dump(hout, hdf_ctr, t, (Explot, Eyplot), (Bxplot+Bxbgd*Bbuffermod(zplot), Byplot+Bybgd), (uxplot, uyplot, uzplot), nplot)
                     totout.write(str(t)+" "+str(mtot)+" "+str(emetot)+" "+str(epatot)+"\n")
                     totout.flush()
                 
