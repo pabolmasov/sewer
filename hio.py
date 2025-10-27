@@ -1,6 +1,6 @@
 import h5py
 import os.path
-from numpy import arange, size
+from numpy import *
 from scipy.interpolate import interp1d
 
 def entryname(n, ndig = 6):
@@ -92,8 +92,7 @@ def fewout_readdump(hname, ctr):
 
     geom=hfile["geometry"]
     glo=hfile["globals"]
-
-    
+   
     z = geom["z"][:]
     zhalf = geom["zhalf"][:]
 
@@ -108,3 +107,30 @@ def fewout_readdump(hname, ctr):
     hfile.close()
     
     return t, z, zhalf, (Ex, Ey), (Bx, By), (ux, uy, uz), n
+
+def fewout_readall(hname, qua = 'Bx', zalias = 2, talias = 2):
+
+    hfile = h5py.File(hname, 'r', libver='latest')
+
+    geom=hfile["geometry"]
+    glo=hfile["globals"]
+
+    z = geom["z"][::zalias]
+    nz = size(z)
+
+    # hfile.keys()
+    entries = list(hfile.keys())[:-2]
+    if talias > 1:
+        entries = entries[::talias]
+    nentries = size(entries)
+    
+    t = zeros(nentries) ; q = zeros([nz, nentries])
+    ctr = 0
+    
+    for kent in entries:
+        data=hfile[kent]
+        t[ctr] = data.attrs["t"]
+        q[:, ctr] = data[qua][::zalias]
+        ctr += 1
+        
+    return z, t, q

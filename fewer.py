@@ -43,10 +43,10 @@ import plots
 
 # physical switches:
 ifmatter = False # feedback
-ifuz = True # left BC for the velocities; without MF, True works much better
+ifuz = False # left BC for the velocities; without MF, True works much better
 ifnowave = False # no EM wave, but the initial velocities are perturbed
 ifpar = False
-ifBbuffer = True
+ifBbuffer = False
 
 rtol = 1e-8
 vmin = 1e-8
@@ -61,9 +61,9 @@ ndigits = 2 # for output, t is truncated to ndigits after .
 # TODO: energy check
 
 # mesh:
-nz = 1024  # per core
+nz = 2048  # per core
 nc = csize # number of cores
-zlen = 20.
+zlen = 60.
 zbuffer = 2.0
 z = (arange(nz*nc) / double(nz*nc) - 0.5) * zlen
 dz = z[1] - z[0]
@@ -80,7 +80,7 @@ print("core ", crank, ": z_ext = ", z_ext[0], "..", z_ext[-1])
 
 # time
 dtCFL = dz * 0.1 # CFL in 1D should be not very small
-dtfac = 0.1
+dtfac = 0.01
 # dtout = 0.01
 ifplot = True
 hdf_alias = 100
@@ -88,22 +88,26 @@ picture_alias = 300
 
 # injection:
 ExA = 0.0
-EyA = 100.0
+EyA = 2.0
 omega0 = 10.0
-tpack = sqrt(2.5)*2.0
+tpack = sqrt(2.5)
 tmid = tpack * 10. # the passage of the wave through z=0
-tmax = 3. * tmid
+tmax = 4. * tmid
+
+tstart = 40.
+
+print("tmax = ", tmax)
 
 if ifnowave:
     EyA = 0.
     ExA = 0.
 
 Bz = 0.0
-Bxbgd = 2.0
+Bxbgd = 1.0
 Bybgd = 0.0
 
 def Aleft(t):
-    return -sin(omega0 * (t -tmid + dz/2.)) * exp(-((t + dz/2.-tmid)/tpack)**2/2.) / omega0
+    return -sin(omega0 * (t -tmid - dz/2.)) * exp(-((t - dz/2.-tmid)/tpack)**2/2.) / omega0
 
 def Eleft(t):
     return (cos(omega0 * (t-tmid)) - (t-tmid)/(omega0*tpack**2) * sin(omega0 * (t-tmid))) * exp(-((t-tmid)/tpack)**2/2.)
@@ -111,6 +115,16 @@ def Eleft(t):
 def Bleft(t):
     return Eleft(t - dz/2.)
 # sin(omega0 * (t-tmid+dz/2.)) * exp(-((t+dz/2.-tmid)/tpack)**2/2.)
+
+def buffermod(zz):
+    znorm = (zlen/2. - zbuffer)
+    return (zz > -znorm) * (zz < znorm) * (zz / znorm + 1.) * (1. - zz/znorm) 
+
+def Bbuffermod(zz):
+    if ifBbuffer:
+        return buffermod(zz)
+    else:
+        return zz*0.+1.
 
 def phiRL(uside, v):
     # slope limiter
@@ -166,8 +180,8 @@ def dEstep(Bx, By, jx, jy, v):
     dEy = (Bx[1:-1]-Bx[:-2])/dz
     
     if ifmatter:
-        dEx += phiRL(jx, v)
-        dEy += phiRL(jy, v)
+        dEx += phiRL(jx, v)[1:]
+        dEy += phiRL(jy, v)[1:]
     
     return dEx, dEy
 
@@ -197,7 +211,7 @@ def phifun(r1, r2):
 
 def dvstep_parabolic(ux, uy, uz, n, s, Ex, Ey, Bx, By):
 
-    # uz *= 0.
+    uz = maximum(uz, 0.)
     
     gamma = sqrt(1. + ux**2 + uy**2 + uz**2)
 
@@ -224,6 +238,7 @@ def dvstep_parabolic(ux, uy, uz, n, s, Ex, Ey, Bx, By):
     '''
     
     # what if vz_max > 1? then
+    
     vzpeak = vz_ccoeff - vz_bcoeff**2/4./vz_acoeff
     zpeak = - vz_bcoeff / 2./ vz_acoeff
     wvz = (abs(vzpeak)>1.) & (zpeak <= 1.) & (zpeak >= -1.)
@@ -236,7 +251,7 @@ def dvstep_parabolic(ux, uy, uz, n, s, Ex, Ey, Bx, By):
         dux[wvz] /= abs(vzpeak)[wvz]
         duy[wvz] /= abs(vzpeak)[wvz]
         duz[wvz] /= abs(vzpeak)[wvz]
-       
+    
     dux /= -dz ; duy /= -dz  ; duz /= -dz
     
     #    duy *= 0. #!!!temporary
@@ -246,9 +261,9 @@ def dvstep_parabolic(ux, uy, uz, n, s, Ex, Ey, Bx, By):
 
     # vz *= 0. #!!!temporary
     
-    dux += (vy * Bz - vz * By)[1:-1]
-    duy += (vz * Bx - vx * Bz)[1:-1]
-    duz += (vx * By - vy * Bx)[1:-1]
+    dux += (vy * Bz - vz * (By+Bybgd * buffermod(z_ext)))[1:-1]
+    duy += (vz * (Bx+Bxbgd * Bbuffermod(z_ext)) - vx * Bz)[1:-1]
+    duz += (vx * (By+Bybgd * Bbuffermod(z_ext)) - vy * (Bx+Bxbgd * Bbuffermod(z_ext)))[1:-1]
 
     # mass flux
     # nz = ((n * vz)[1:] - (n * vz)[:-1])/dz
@@ -289,37 +304,12 @@ def dvstep_parabolic(ux, uy, uz, n, s, Ex, Ey, Bx, By):
     wyz = (abs(uy[1:-1]) > vmin) & (abs(uz[1:-1]) > vmin) & (abs(duy) > vmin) & (abs(duz) > vmin)
 
     if wyz.sum() > 1:
-        dt_post_v = 1./maximum(abs(duy)[wyz], abs(duz)[wyz]).max()
+        dt_post_v = 1./maximum(abs(duy), abs(duz)).max() #!!! removes [wyz]
     else:
         dt_post_v = tmax
         
     return (dux, duy, duz), dn, ds, minimum(dt_post_n, dt_post_v)
     
-def dvstep(ux, uy, uz, n, Ex, Ey, Bx, By):
-    # upwind integration
-
-    gamma = sqrt(1. + ux**2 + uy**2 + uz**2)
-
-    vx = ux / gamma ; vy = uy / gamma ; vz = uz / gamma
-
-    vzhalf = (vz[1:]+vz[:-1])/2.
-    
-    dux_side = - vzhalf * (ux[1:]-ux[:-1])/dz # nz+1
-    duy_side = - vzhalf * (uy[1:]-uy[:-1])/dz
-    duz_side = - vzhalf * (uz[1:]-uz[:-1])/dz
-    dn_side = - ((n * vz)[1:] - (n*vz)[:-1])/dz
-    
-    dux = (vy * Bz - vz * By)[1:-1]
-    duy = (vz * Bx - vx * Bz)[1:-1]
-    duz = (vx * By - vy * Bx)[1:-1]
-    
-    dux += phiRL(dux_side + Ex, vzhalf) 
-    duy += phiRL(duy_side + Ey, vzhalf) 
-    duz += phiRL(duz_side, vzhalf)
-    dn = phiRL(dn_side, vzhalf)
-    
-    return (dux, duy, duz), dn 
-
 def dsteps(t, E, B, u, n, s):
 
     Ex, Ey = E
@@ -330,21 +320,17 @@ def dsteps(t, E, B, u, n, s):
     if crank == first:
         Ex0 = ExA * Eleft(t)
         Ey0 = EyA * Eleft(t)
-        if ifBbuffer:
-            Bx0 = EyA * Bleft(t)
-            By0 = -ExA * Bleft(t)
-        else:
-            Bx0 = EyA * Bleft(t)+Bxbgd
-            By0 = -ExA * Bleft(t)+Bybgd
+        Bx0 = EyA * Bleft(t)
+        By0 = -ExA * Bleft(t)
         if ifuz:
-            uz0 = minimum((ExA**2 + EyA**2) * Aleft(t)**2/2., uz[0])
+            uz0 = (ExA**2 + EyA**2) * Aleft(t)**2/2.
             uy0 = EyA * Aleft(t) # - Bxbgd * dz
             ux0 = ExA * Aleft(t) # + Bybgd * dz
             n0 = 0. # sqrt(1.+uy0**2+ux0**2+uz0**2)
         else:
-            uz0 = uz[0] # uz[0] - (uz[1]-uz[0])
-            uy0 = uy[0]
-            ux0 = ux[0] # - (ux[1]-ux[0])# + (Bybgd+ExA*Eleft(t) * 0.) * dz
+            uz0 = -uz[0] # uz[0] - (uz[1]-uz[0])
+            uy0 = uy[0] #  - Bxbgd * dz
+            ux0 = ux[0] # + Bybgd * dz # - (ux[1]-ux[0])# + (Bybgd+ExA*Eleft(t) * 0.) * dz
             if ifpar:
                  uz0_acoeff, uz0_bcoeff, uz0_ccoeff = parcoeff(uz[0:3])
                  uy0_acoeff, uy0_bcoeff, uy0_ccoeff = parcoeff(uy[0:3])
@@ -359,22 +345,14 @@ def dsteps(t, E, B, u, n, s):
 
     if crank == last:
         Ex1 = By[-1]
-        if ifBbuffer:
-            Ey1 = - Bx[-1]
-        else:
-            Ey1 = - Bx[-1] + Bxbgd
+        Ey1 = - Bx[-1]
         Bx1 = Bx[-1]
-        if ifBbuffer:
-            By1 = By[-1]
-        else:
-            By1 = By[-1] - Bybgd
+        By1 = By[-1]
         uz1 = maximum(uz[-1], 0.)
-        if ifBbuffer:
-            uy1 = uy[-1]
-            ux1 = ux[-1]
-        else:
-            uy1 = uy[-1] - (Bxbgd-EyA*Eleft(t) * 0.) * dz
-            ux1 = ux[-1] + (Bybgd+ExA*Eleft(t) * 0.) * dz
+
+        uy1 = uy[-1]
+        ux1 = ux[-1]
+
         n1 = n[-1]
         s1 = zlen/2.
     else:
@@ -416,7 +394,12 @@ def dsteps(t, E, B, u, n, s):
     gamma = sqrt(1. + ux_ext**2 + uy_ext**2 + uz_ext**2 )
     if ifmatter:
         # gamma = sqrt(1. + ux**2 + uy**2 + uz**2 )
-        jx = -n_ext * ux_ext/gamma ;     jy = -n_ext * uy_ext/gamma ;         jz = 0.
+        wn = n_ext > 0.
+        jx = zeros(nz+2) ; jy = zeros(nz+2)
+        if wn.sum() > 0:
+            # jx = zeros(nz+2) ; jy = zeros(nz+2)
+            jx[wn] = -(n_ext * ux_ext/gamma)[wn] ;     jy[wn] = -(n_ext * uy_ext/gamma)[wn] ;
+            jz = 0.
     else:
         jx = 0. ; jy = 0. ; jz = 0.
     
@@ -429,18 +412,11 @@ def dsteps(t, E, B, u, n, s):
 def sewerrun():
     
     # E on the edges, B in cell centres (Bz is not evolves, just postulated)
-    Bx = -EyA * Bleft(-zlen/2.-dz-z) # minimal z-dz is the coord of the ghost zone
-    By = ExA * Bleft(-zlen/2.-dz -z)
-
-    if ifBbuffer:
-        Bx += Bxbgd *  (z > (-zlen/2.+zbuffer)) * (z < (zlen/2.-zbuffer))  * (z - (-zlen/2.+zbuffer)) * ( (zlen/2.-zbuffer) -  z) 
-        By += Bybgd * (z > (-zlen/2.+zbuffer)) * (z < (zlen/2.-zbuffer))  * (z - (-zlen/2.+zbuffer)) * ( (zlen/2.-zbuffer) -  z)
-    else:
-        Bx += Bxbgd
-        By += Bybgd
+    Bx = -EyA * Bleft(tstart-zlen/2.-dz-z) # minimal z-dz is the coord of the ghost zone
+    By = ExA * Bleft(tstart-zlen/2.-dz -z)
     
-    Ex = ExA * Eleft(-zlen/2.-dz-zhalf) # ghost zone + dz/2.
-    Ey = EyA * Eleft(-zlen/2.-dz-zhalf)
+    Ex = ExA * Eleft(tstart-zlen/2.-dz-zhalf) # ghost zone + dz/2.
+    Ey = EyA * Eleft(tstart-zlen/2.-dz-zhalf)
     #     Ex = zeros(nz)
 
     ux = zeros(nz)  ; uy = zeros(nz) ; uz = zeros(nz) ; n = ones(nz) ; s = copy(z) # s is tracer
@@ -449,7 +425,8 @@ def sewerrun():
         uy += exp(-0.5*(z/tpack)**2) * 0.1
         uylist = [] ; uzlist = []
         
-    n *= (z > (-zlen/2.+zbuffer)) & (z < (zlen/2.-zbuffer)) # sin(z * 10.) * 0.1
+    n *= buffermod(z)
+    # (z > (-zlen/2.+zbuffer)) & (z < (zlen/2.-zbuffer)) # sin(z * 10.) * 0.1
 
     # total quantities:
     tlist = []
@@ -457,11 +434,11 @@ def sewerrun():
     paelist = [] # particle energy
     emelist = [] # EM fields energy
     
-    t = 0. ; ctr = 0; plot_ctr = 0 ; hdf_ctr = 0
+    t = tstart ; ctr = 0; plot_ctr = 0 ; hdf_ctr = 0
 
     uzmax = 0.
     
-    while ((t < tmax) & (uzmax < 10.* (EyA/omega0)**2/2.)):
+    while ((t < tmax)): # & (uzmax < 10.* (EyA/omega0)**2/2.)):
            # & (abs(Bx).max() < ( 10. * EyA)) & (abs(uy).max() < ( 10. * EyA/omega0)) & (n.max() < 10.) & isfinite(n.max())):
 
         # first step in RK4
@@ -555,10 +532,10 @@ def sewerrun():
                     clf()
                     fig = figure()
                     if abs(Bxbgd) > 0.:
-                        plot(zplot, Bxplot*0. + Bxbgd, 'k:', label = r'$B_x^{\rm bgd}$')
-                    plot(zplot, Bxplot, 'k-', label = r'$B_x$')
+                        plot(zplot, Bxplot*0. + Bxbgd * Bbuffermod(zplot), 'k:', label = r'$B_x^{\rm bgd}$')
+                    plot(zplot, Bxplot+Bxbgd * Bbuffermod(zplot), 'k-', label = r'$B_x$')
                     if abs(Byplot).max() > 0.:
-                        plot(zplot, Byplot, 'k:', label = r'$B_y$')
+                        plot(zplot, Byplot+Bybgd * Bbuffermod(zplot), 'k:', label = r'$B_y$')
                     plot(zplot_half, Eyplot, 'r-', label = r'$E_y$')
                     if abs(Explot).max() > 0.:
                         plot(zplot_half, Ex, 'r:', label = r'$E_x$')
@@ -580,6 +557,7 @@ def sewerrun():
                     savefig('uyz{:05d}.png'.format(plot_ctr))
                 
                     uytmp = arange(100)/100. * (uyplot.max() - uyplot.min()) + uyplot.min()
+                    gammaplot = sqrt(1.+uxplot**2+uyplot**2+uzplot**2)
 
                     clf()
                     plot(uytmp, uytmp**2/2., 'r-')
@@ -608,7 +586,6 @@ def sewerrun():
                         title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
                         fig.set_size_inches(8.,8.)
                         savefig('AGO{:05d}.png'.format(plot_ctr))
-                        gammaplot = sqrt(1.+uxplot**2+uyplot**2+uzplot**2)
                         clf()
                         plot(zplot[ww], gammaplot[ww]-1., 'bx', label = r'$\gamma-1$')
                         plot(zplot[ww], uzplot[ww] , 'k.', label = r'$u^z$')
@@ -635,6 +612,13 @@ def sewerrun():
                     xlabel(r'$z$')   ;   ylabel(r'$z0(z, t)$') 
                     title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
                     savefig('sz{:05d}.png'.format(plot_ctr))
+                    # currents:
+                    jy = nplot * uyplot / gammaplot
+                    clf()
+                    plot(zplot, jy, 'k.')
+                    xlabel(r'$z$')   ;   ylabel(r'$j_y$') 
+                    title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+                    savefig('jy{:05d}.png'.format(plot_ctr))
                     close()
                     plot_ctr += 1
             
@@ -649,7 +633,7 @@ def sewerrun():
                         totout = open("totals.dat", 'w+')
                         totout.write("# t -- m -- EM energy -- PA energy \n")
 
-                    hio.fewout_dump(hout, hdf_ctr, t, (Explot, Eyplot), (Bxplot, Byplot), (uxplot, uyplot, uzplot), nplot)
+                    hio.fewout_dump(hout, hdf_ctr, t, (Explot, Eyplot), (Bxplot+Bxbgd*Bbuffermod(zplot)), Byplot+Bybgd*Bbuffermod(zplot)), (uxplot, uyplot, uzplot), nplot)
                     totout.write(str(t)+" "+str(mtot)+" "+str(emetot)+" "+str(epatot)+"\n")
                     totout.flush()
                 

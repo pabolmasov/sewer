@@ -311,19 +311,22 @@ def uGOcompare(hname, narr):
         close()
         print(hname, "entry ", narr, " finished")
         
-def Hcompare(hname1, hname2, nctr, zoomin = 0.):
+def Hcompare(hname1, hname2, nctr, zoomin = 0., zrange = None):
 
-    t1, z1, zhalf1, E1, B1, u1, n1 = hio.fewout_readdump(hname1, nctr)
+    if size(nctr) <= 1:
+        nctr = (nctr, nctr)
+    
+    t1, z1, zhalf1, E1, B1, u1, n1 = hio.fewout_readdump(hname1, nctr[0])
     Ex1, Ey1 = E1
     Bx1, By1 = B1
     ux1, uy1, uz1 = u1
 
-    t2, z2, zhalf2, E2, B2, u2, n2 = hio.fewout_readdump(hname2, nctr)
+    t2, z2, zhalf2, E2, B2, u2, n2 = hio.fewout_readdump(hname2, nctr[1])
     Ex2, Ey2 = E2
     Bx2, By2 = B2
     ux2, uy2, uz2 = u2
 
-    print("t = ", t1, " = ", t2)
+    # print("t = ", t1, " = ", t2)
 
     print(abs(ux1).max(), abs(ux2).max())
     
@@ -337,28 +340,53 @@ def Hcompare(hname1, hname2, nctr, zoomin = 0.):
         ylim(-sqrt(Bx1**2+Bx2**2).max(), sqrt(Bx1**2+Bx2**2).max())
     title(r'$t = '+str(round(t1, ndigits))+'$')
     xlabel(r'$z$') ; ylabel(r'$B_x$')
-    savefig('compareBx{:05d}.png'.format(nctr))
+    savefig('compareBx{:05d}_'.format(nctr[0])+'{:05d}'.format(nctr[1]))
 
     print((EyA* Aleft(-z1)).max())
     clf()
     fig = figure()
     # plot(z1, sqrt(1.+EyA**2 * Aleft(-z1+t1+z1.min())**2)-1., 'b--', label = r'$\sqrt{1+A^2}-1$')
-    plot(z1, uy1, 'k-', label = hname1+': $u^y$')
-    plot(z2, uy2, 'k:', label = hname2+': $u^y$')
-    plot(z1, uz1, 'r-', label = hname1+': $u^z$')
-    plot(z2, uz2, 'r:', label = hname2+': $u^z$')
+    plot(z1, uy1, 'k-', label = hname1+'(t = '+str(round(t1, ndigits))+'): $u^y$')
+    plot(z2, uy2, 'k:', label = hname2+'(t = '+str(round(t2, ndigits))+': $u^y$')
+    plot(z1, uz1, 'r-', label = hname1+'(t = '+str(round(t1, ndigits))+': $u^z$')
+    plot(z2, uz2, 'r:', label = hname2+'(t = '+str(round(t2, ndigits))+': $u^z$')
     if zoomin > 0.:
         xlim(zcen - (zcen-z1.min())/zoomin, zcen + (z1.max()-zcen)/zoomin)
         ylim(-sqrt(uy1**2+uy2**2).max(), sqrt(uy1**2+uy2**2).max())
     legend()
-    title(r'$t = '+str(round(t1, ndigits))+'$')
+    # title(r'$t = '+str(round(t1, ndigits))+'$')
     xlabel(r'$z$') ; ylabel(r'$u^{y, z}$')
+    if zrange is not None:
+        xlim(zrange[0], zrange[1])
     fig.set_size_inches(12.,5.)
-    savefig('compareu{:05d}.png'.format(nctr))
+    savefig('compareu{:05d}_'.format(nctr[0])+'{:05d}'.format(nctr[1]))
     close()
     
-def compares(hname1, hname2, narr):
+def compares(hname1, hname2, narr1, narr2):
 
-    for n in narr:
-        Hcompare(hname1, hname2, n, zoomin = 0.0)
+    nnarr = size(narr1)
+    if size(narr2) != nnarr:
+        ii = input("narrs do not match in size")
     
+    for k in arange(nnarr):
+        Hcompare(hname1, hname2, (narr1[k], narr2[k]), zrange = [-10., 10.])
+    
+
+def compare2d(hname1, hname2, qua = 'Bx'):
+
+    z1, t1, q1 = hio.fewout_readall(hname1, qua = qua,  zalias = 5, talias = 5)
+    z2, t2, q2 = hio.fewout_readall(hname2, qua = qua, zalias = 5, talias = 5)
+
+    # print(shape(z1), shape(t1), shape(q1))
+    
+    clf()
+    fig, ax = subplots(ncols=2, figsize=(12, 8))
+    ax[0].pcolormesh(z1, t1, transpose(q1), shading = 'nearest')
+    ax[0].plot(z1, z1+tmid, 'w:')
+    ax[1].pcolormesh(z2, t2, transpose(q2), shading = 'nearest')
+    ax[1].plot(z2, z2+tmid, 'w:')
+    ax[0].set_xlabel(r'$z$') ;     ax[0].set_ylabel(r'$t$')
+    ax[1].set_xlabel(r'$z$') ;     ax[1].set_ylabel(r'$t$')
+    ax[0].set_ylim(maximum(t1.min(), t2.min()), minimum(t1.max(), t2.max()))
+    ax[1].set_ylim(maximum(t1.min(), t2.min()), minimum(t1.max(), t2.max()))
+    savefig('compare2d_'+qua+'.png')
