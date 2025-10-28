@@ -11,10 +11,10 @@ cmap = 'viridis'
 ndigits = 2 # round-off digits TODO: make this automatic
 
 # store all this in the globals:
-EyA = 100.0
+EyA = 20.0
 omega0 = 10.0
 
-tpack = sqrt(2.5)*2.
+tpack = sqrt(6.)
 tmid = tpack * 10.
 tmax = 3. * tmid
 
@@ -105,7 +105,7 @@ def maps_dat(filename = "sewerout.dat", zalias = 1, talias = 1):
     savefig('qmap.png')
     
 
-def maps(z, tlist, bxlist, uzlist, nlist, ctr, zalias = 1, talias = 1):
+def maps(z, tlist, bxlist, uylist, uzlist, nlist, ctr, zalias = 1, talias = 1):
     s = shape(nlist)
     print(s)
     # if the two species are stored separately
@@ -131,10 +131,12 @@ def maps(z, tlist, bxlist, uzlist, nlist, ctr, zalias = 1, talias = 1):
     
     clf()
     fig, ax = subplots(ncols=2, figsize=(10, 6))
-    pc1 = ax[0].pcolormesh(z[::zalias], tlist[::talias], uzplist[::talias, ::zalias])
-    fig.colorbar(pc1, ax = ax[0])
-    pc2 = ax[1].pcolormesh(z[::zalias], tlist[::talias], uzelist[::talias, ::zalias])
-    fig.colorbar(pc2, ax = ax[1])
+    pc1 = ax[0].pcolormesh(z[::zalias], tlist[::talias], uylist[::talias, ::zalias])
+    cb1 = fig.colorbar(pc1, ax = ax[0])
+    cb1.set_label(r'$u^y$')
+    pc2 = ax[1].pcolormesh(z[::zalias], tlist[::talias], uzlist[::talias, ::zalias])
+    cb2 = fig.colorbar(pc1, ax = ax[0])
+    cb2.set_label(r'$u^z$')
     ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$\omega_{\rm p} t$')  
     savefig('uzmap.png'.format(ctr))
     
@@ -287,11 +289,15 @@ def uGOcompare(hname, narr):
 
         ww = (abs(uy1) > 1e-8)
         dz = z1[1]-z1[0]
+        zlen = z1[-1] - z1[0]
         
         clf()
         fig = figure()
         plot(z1, uy1, 'ko', label = hname+': $u^y$', mfc = 'none')
-        plot(z1, Aleft(t1-z1+z1.min()-dz/2.)*EyA, 'b-', label = r'$-A$')
+        # plot(z1, Aleft(t1-z1+z1.min()-dz/2.)*EyA, 'b-', label = r'$-A$')
+        z0 = tpack * 4.-zlen/2.
+        # print(z0)
+        plot(z1, Aleft((z1-z0-t1+tmid)%zlen)*EyA, 'b-', label = r'$-A$')
         legend()
         title(r'$\omega_{\rm p} t = '+str(round(t1, ndigits))+'$')
         ylim(-EyA/omega0, EyA/omega0)
@@ -301,7 +307,8 @@ def uGOcompare(hname, narr):
         clf()
         fig = figure()
         plot(z1, uz1, 'ko', label = hname+': $u^z$', mfc = 'none')
-        plot(z1, (Aleft(t1-z1+z1.min()-dz/2.)*EyA)**2/2., 'b-', label = r'$A^2/2$')
+        # plot(z1, (Aleft(t1-z1+z1.min()-dz/2.)*EyA)**2/2., 'b-', label = r'$A^2/2$')
+        plot(z1, (Aleft((z1-z0-t1+tmid)%zlen)*EyA)**2/2., 'b-', label = r'$A^2/2$')
         legend()
         ylim(-(EyA/omega0)**2/10., (EyA/omega0)**2/2.)
         title(r'$\omega_{\rm p} t = '+str(round(t1, ndigits))+'$')

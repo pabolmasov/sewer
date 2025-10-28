@@ -31,9 +31,10 @@ import plots
 # physical switches:
 ifmatter = True
 ifonedirection = False
+ifnclean = True
 
 # mesh:
-nz = 2048
+nz = 4096
 zlen = 50.
 z = (arange(nz) / double(nz) - 0.5) * zlen
 dz = z[1] - z[0]
@@ -51,16 +52,17 @@ dtout = 0.1
 # initial conditions (circularly polirized wave)
 ExA = 0.0
 EyA = 2.0
-omega0 = 1.0
+omega0 = 10.0
 f0 = omega0 / 2./ pi
 tpack = sqrt(6.)
 tmid = tpack * 10. # the passage of the wave through z=0
-tmax = 5. * tmid
+tmax = zlen 
 zcenter = tpack * 4.-zlen/2.
 
 # background magnetic field
 Bxbgd = 0.0
 Bybgd = 0.0
+Bzbgd = 0.0
 
 def Avec(t):
     return -sin(omega0 * t) * exp(-(t/tpack)**2/2.) / omega0
@@ -78,6 +80,7 @@ def onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_ux, F_uy, F_uz, F_n, ifmatter):
     bz = 0.
     ux = ifft(F_ux) ;    uy = ifft(F_uy) ;    uz = ifft(F_uz)
     n = ifft(F_n) # n is n gamma
+    n = maximum(n, 0.)
     gamma = sqrt(1.+ux**2+uy**2+uz**2)
     vx = ux/gamma ; vy = uy/gamma ; vz = uz/gamma
     
@@ -92,7 +95,7 @@ def onestep(f, F_ax, F_ay, F_az, F_bx, F_by, F_ux, F_uy, F_uz, F_n, ifmatter):
     dF_ux = F_ax + fft( -vz * ifft(1.j*f*F_ux) + (vy * bz - vz * by))
     dF_uy = F_ay + fft( -vz * ifft(1.j*f*F_uy) + (vz * bx - vx * bz))
     dF_uz = F_az + fft( -vz * ifft(1.j*f*F_uz) + (vx * by - vy * bx))
-    dF_n = -1.j * f * fft(vz) # !!!n=1
+    dF_n = -1.j * f * fft(vz * n) #
 
     return dF_ax, dF_ay, dF_az, dF_bx, dF_by, dF_ux, dF_uy, dF_uz, dF_n
 
@@ -107,7 +110,7 @@ def sewerrun():
     by0 = ExA * Afield(z-zcenter)
     az0 = z * 0. ;   bz0 = z * 0.
     # 4-velocity
-    ux0 = 0.*z  ;    uy0 = -ExA * Avec(z-zcenter)
+    ux0 = 0.*z  ;    uy0 = EyA * Avec(z-zcenter) 
     uz0 = uy0**2/2.
     n0 = ones(nz) * 1.0 # density ; let us keep it unity, meaning time is in omega_p units. Lengths are internally in c/f = 2pi c / omega units, that allows a simpler expression for d/dz 
     
@@ -146,9 +149,10 @@ def sewerrun():
     hyperpower = 4.0
     # hypercore = exp(-(fsq / (fsq.real).max())**hyperpower * 0.5) + 0.j #  * (2.*pi)**2
     hyperpower = 2.0
-    cutofffactor = 1.0
-    hypershift = 0.5
+    cutofffactor = 2.0
+    hypershift = 0.0
     hypercore = minimum(exp(hypershift-(fsq / (fsq.max() * cutofffactor))**hyperpower * dt), 1.0) + 0.j
+    hypercore_n = minimum(exp(hypershift-(fsq / (fsq.max() * cutofffactor))**hyperpower * dtCFL), 1.0) + 0.j
     # print(f)
 
     fout_energy = open('sewer_energy.dat', 'w+')
@@ -176,20 +180,29 @@ def sewerrun():
         dt = minimum(dtCFL, minimum(minimum(dt_uz, dt_uy), dt_n) * 0.01)
         # print("dt = ", dtCFL, ", ", dt_uz*0.01, ", ", dt_uy * 0.01, ", ", dt_n * 0.01)
         
-        dF_ax2, dF_ay2, dF_az2, dF_bx2, dF_by2, dF_ux2, dF_uy2, dF_uz2, dF_n2 = onestep(f, F_ax + dF_ax1/3. * dt, F_ay  + dF_ay1/3. * dt, dF_az1/3. * dt, F_bx + dF_bx1/3. * dt, F_by + dF_by1/3. * dt, F_ux + dF_ux1/3. * dt, F_uy + dF_uy1/3. * dt, F_uz  + dF_uz1/3. * dt, F_n  + dF_n1/3. * dt, ifmatter)
-        dF_ax2, dF_ay2, dF_az2, dF_bx2, dF_by2, dF_ux2, dF_uy2, dF_uz2, dF_n2 = onestep(f, F_ax + dF_ax2 * 2./3. * dt, F_ay  + dF_ay2 * 2./3. * dt, dF_az2 * 2./3. * dt, F_bx + dF_bx2 * 2./3. * dt, F_by + dF_by2 * 2./3. * dt, F_ux + dF_ux2 * 2./3. * dt, F_uy + dF_uy2 * 2./3. * dt, F_uz  + dF_uz2 * 2./3. * dt, F_n  + dF_n2 * 2./3. * dt, ifmatter)    
-   
+        dF_ax2, dF_ay2, dF_az2, dF_bx2, dF_by2, dF_ux2, dF_uy2, dF_uz2, dF_n2 = onestep(f, F_ax + dF_ax1/2. * dt, F_ay  + dF_ay1/2. * dt, dF_az1/2. * dt, F_bx + dF_bx1/2. * dt, F_by + dF_by1/2. * dt, F_ux + dF_ux1/2. * dt, F_uy + dF_uy1/2. * dt, F_uz  + dF_uz1/2. * dt, F_n  + dF_n1/2. * dt, ifmatter)
+        dF_ax3, dF_ay3, dF_az3, dF_bx3, dF_by3, dF_ux3, dF_uy3, dF_uz3, dF_n3 = onestep(f, F_ax + dF_ax2/2. * dt, F_ay  + dF_ay2 /2. * dt, dF_az2 / 2. * dt, F_bx + dF_bx2 / 2. * dt, F_by + dF_by2 / 2. * dt, F_ux + dF_ux2 / 2. * dt, F_uy + dF_uy2 / 2. * dt, F_uz  + dF_uz2 / 2. * dt, F_n  + dF_n2 / 2. * dt, ifmatter)    
+        dF_ax4, dF_ay4, dF_az4, dF_bx4, dF_by4, dF_ux4, dF_uy4, dF_uz4, dF_n4 = onestep(f, F_ax + dF_ax3 * dt, F_ay  + dF_ay3 * dt, dF_az3 * dt, F_bx + dF_bx3 * dt, F_by + dF_by3 * dt, F_ux + dF_ux3 * dt, F_uy + dF_uy3 * dt, F_uz  + dF_uz3 * dt, F_n  + dF_n3 * dt, ifmatter)    
         # time step:
-        F_bx += (dF_bx1 * 0.25 + dF_bx2 * 0.75) * dt ;    F_by += (dF_by1 * 0.25 + dF_by2 * 0.75) * dt
-        F_ax += (dF_ax1 * 0.25 + dF_ax2 * 0.75) * dt ;    F_ay += (dF_ay1 * 0.25 + dF_ay2 * 0.75) * dt ;    F_az += (dF_az1 * 0.25 + dF_az2 * 0.75) * dt
-        F_ux += (dF_ux1 * 0.25 + dF_ux2 * 0.75) * dt ;    F_uy += (dF_uy1 * 0.25 + dF_uy2 * 0.75) * dt ;    F_uz += (dF_uz1 * 0.25 + dF_uz2 * 0.75) * dt
-        F_n += (dF_n1 * 0.25 + dF_n2 * 0.75) * dt
+        F_bx += (dF_bx1 + dF_bx2 * 2. + dF_bx3 * 2. + dF_bx4) / 6. * dt
+        F_by += (dF_by1 + dF_by2 * 2. + dF_by3 * 2. + dF_by4) / 6. * dt
+        F_ax += (dF_ax1 + dF_ax2 * 2. + dF_ax3 * 2. + dF_ax4) / 6. * dt
+        F_ay += (dF_ay1 + dF_ay2 * 2. + dF_ay3 * 2. + dF_ay4) / 6. * dt 
+        # F_az += (dF_az1 + dF_az2 * 2. + dF_az3 * 2. + dF_az4) / 6. * dt
+        F_ux += (dF_ux1 + dF_ux2 * 2. + dF_ux3 * 2. + dF_ux4) / 6. * dt
+        F_uy += (dF_uy1 + dF_uy2 * 2. + dF_uy3 * 2. + dF_uy4) / 6. * dt
+        F_uz += (dF_uz1 + dF_uz2 * 2. + dF_uz3 * 2. + dF_uz4) / 6. * dt
+        F_n += (dF_n1 + dF_n2 * 2. + dF_n3 * 2. + dF_n4) / 6. * dt
         t += dt
 
         # dyperdiffusion:
         F_bx *= hypercore ;   F_by *= hypercore
         F_ax *= hypercore ;   F_ay *= hypercore  ;   F_az *= hypercore 
         F_ux *= hypercore ;   F_uy *= hypercore  ;   F_uz *= hypercore   ;    F_n *= hypercore
+
+        if ifnclean:
+            n = maximum(ifft(F_n), 0.)
+            F_n = fft(n) * hypercore_n
         
         if t > (tstore + dtout):
             print("t = ", t)
@@ -209,6 +222,15 @@ def sewerrun():
             # print("Bx = ", bx.min(), '..', bx.max())
             # print("Ey = ", ay.min(), '..', ay.max())
             print("dt = ", dt)
+
+            # HDF5 output:
+            if ctr == 0:
+                hout = hio.fewout_init('sout.hdf5',
+                                       {"ifmatter": ifmatter, "ExA": ExA, "EyA": EyA,
+                                        "omega0": omega0, "tpack": tpack, "tmid": tmid, "Bz": Bzbgd, "Bx": Bxbgd},
+                                       z, zhalf = z)
+
+            hio.fewout_dump(hout, ctr, t, (ax, ay), (bx+Bxbgd, by+Bybgd), (ux, uy, uz), n)
             
             # ASCII output
             for k in arange(size(bx)):
@@ -240,7 +262,8 @@ def sewerrun():
             ctr += 1
 
     fout.close()   ; fout_energy.close()
-            
+    hout.close()
+    
     tlist = asarray(tlist)
     bxlist = asarray(bxlist)
     Fbxlist = asarray(Fbxlist, dtype = complex)
@@ -290,7 +313,7 @@ def sewerrun():
 
     plots.show_nukeplane(omega0 = omega0)
     
-    plots.maps(z, tlist, bxlist, uzlist, nlist, ctr, zalias = 5, talias = 1)
+    plots.maps(z, tlist, bxlist, uylist, uzlist, nlist, ctr, zalias = 5, talias = 1)
 
     # final mass and energy plots
     if ifplot:
@@ -310,3 +333,4 @@ def sewerrun():
     
     
 # ffmpeg -f image2 -r 20 -pattern_type glob -i 'EB*.png' -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2"  -pix_fmt yuv420p -b 8192k EB.mp4
+# uGOcompare('sout_A2_nofeed.hdf5', arange(1000))
