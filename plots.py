@@ -142,10 +142,12 @@ def maps(z, tlist, bxlist, uylist, uzlist, nlist, ctr, zalias = 1, talias = 1):
     
     clf()
     fig, ax = subplots(ncols=2, figsize=(8, 4))
-    pc1 = ax[0].pcolormesh(z[::zalias], tlist[::talias], nplist[::talias, ::zalias])
-    fig.colorbar(pc1, ax = ax[0])
-    pc2 = ax[1].pcolormesh(z[::zalias], tlist[::talias], nelist[::talias, ::zalias])
-    fig.colorbar(pc2, ax = ax[1])
+    pc1 = ax[0].pcolormesh(z[::zalias], tlist[::talias], nlist[::talias, ::zalias])
+    cb1 = fig.colorbar(pc1, ax = ax[0])
+    cb1.set_label(r'$n$')
+    pc2 = ax[1].pcolormesh(z[::zalias], tlist[::talias], log10(nlist[::talias, ::zalias]))
+    cb2 = fig.colorbar(pc2, ax = ax[1])
+    cb2.set_label(r'$\log_{10}n$')
     ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$\omega_{\rm p} t$')  
     savefig('nmap.png'.format(ctr))
     
@@ -212,7 +214,8 @@ def onthefly(z, zshift, ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, ux, uy, uz,
         plot(z, ne, 'r:', label = r'$n_-$')
     else:
         plot(z, n, 'k-', label = r'$n$')
-    xlabel(r'$z$')  ;   ylabel(r'$n$') 
+    xlabel(r'$z$')  ;   ylabel(r'$n$')
+    yscale('log')
     legend()
     title(r'$\omega_{\rm p} t = '+str(round(t))+'$')
     fig.set_size_inches(12.,5.)
@@ -334,31 +337,31 @@ def Hcompare(hname1, hname2, nctr, zoomin = 0., zrange = None):
     ux2, uy2, uz2 = u2
 
     # print("t = ", t1, " = ", t2)
-
-    print(abs(ux1).max(), abs(ux2).max())
+    # print(abs(ux1).max(), abs(ux2).max())
     
     clf()
     plot(z1, Bx1, 'k-', label = hname1)
-    plot(z2, Bx2, 'r:', label = hname2)
+    plot(z2, Bx2, 'r:', label = hname2, linewidth = 2)
     legend()
     if zoomin > 0.:
         zcen = t1 - tmid + z1.min()      
-        xlim(zcen - (zcen-z1.min())/zoomin, zcen + (z1.max()-zcen)/zoomin)
+        xlim(zcen - 0.5 * (z1.max()-z1.min())/zoomin, zcen + 0.5 * (z1.max()-z1.min())/zoomin)
         ylim(-sqrt(Bx1**2+Bx2**2).max(), sqrt(Bx1**2+Bx2**2).max())
     title(r'$t = '+str(round(t1, ndigits))+'$')
     xlabel(r'$z$') ; ylabel(r'$B_x$')
     savefig('compareBx{:05d}_'.format(nctr[0])+'{:05d}'.format(nctr[1]))
 
-    print((EyA* Aleft(-z1)).max())
+    # print((EyA* Aleft(-z1)).max())
     clf()
     fig = figure()
     # plot(z1, sqrt(1.+EyA**2 * Aleft(-z1+t1+z1.min())**2)-1., 'b--', label = r'$\sqrt{1+A^2}-1$')
     plot(z1, uy1, 'k-', label = hname1+'(t = '+str(round(t1, ndigits))+'): $u^y$')
-    plot(z2, uy2, 'k:', label = hname2+'(t = '+str(round(t2, ndigits))+': $u^y$')
+    plot(z2, uy2, 'k:', label = hname2+'(t = '+str(round(t2, ndigits))+': $u^y$', linewidth = 2)
     plot(z1, uz1, 'r-', label = hname1+'(t = '+str(round(t1, ndigits))+': $u^z$')
-    plot(z2, uz2, 'r:', label = hname2+'(t = '+str(round(t2, ndigits))+': $u^z$')
+    plot(z2, uz2, 'r:', label = hname2+'(t = '+str(round(t2, ndigits))+': $u^z$', linewidth = 2)
     if zoomin > 0.:
-        xlim(zcen - (zcen-z1.min())/zoomin, zcen + (z1.max()-zcen)/zoomin)
+        xlim(zcen - 0.5 * (z1.max()-z1.min())/zoomin, zcen + 0.5 * (z1.max()-z1.min())/zoomin)
+        # xlim(zcen - (zcen-z1.min())/zoomin, zcen + (z1.max()-zcen)/zoomin)
         ylim(-sqrt(uy1**2+uy2**2).max(), sqrt(uy1**2+uy2**2).max())
     legend()
     # title(r'$t = '+str(round(t1, ndigits))+'$')
@@ -376,7 +379,7 @@ def compares(hname1, hname2, narr1, narr2):
         ii = input("narrs do not match in size")
     
     for k in arange(nnarr):
-        Hcompare(hname1, hname2, (narr1[k], narr2[k]), zrange = [-10., 10.])
+        Hcompare(hname1, hname2, (narr1[k], narr2[k]), zoomin = 3.)# zrange = [-30., 30.])
     
 
 def compare2d(hname1, hname2, qua = 'Bx'):
@@ -397,3 +400,39 @@ def compare2d(hname1, hname2, qua = 'Bx'):
     ax[0].set_ylim(maximum(t1.min(), t2.min()), minimum(t1.max(), t2.max()))
     ax[1].set_ylim(maximum(t1.min(), t2.min()), minimum(t1.max(), t2.max()))
     savefig('compare2d_'+qua+'.png')
+
+def vamps(hname, narr):
+
+    snarr = size(narr)
+
+    if snarr <= 1:
+        # reading a single file
+        t1, z1, zhalf1, E1, B1, u1, n1 = hio.fewout_readdump(hname, narr)
+        Ex1, Ey1 = E1
+        Bx1, By1 = B1
+        ux1, uy1, uz1 = u1
+
+        uymin = uy1.min() ; uymax = uy1.max()
+        uzmin = uz1.min() ; uzmax = uz1.max()
+        
+        return t1, (uymin, uymax), (uzmin, uzmax)
+    else:
+
+        t = zeros(snarr) ; uymin = zeros(snarr) ; uymax = zeros(snarr)
+        uzmin = zeros(snarr) ; uzmax = zeros(snarr)
+        
+        for k in arange(snarr):
+            ttmp, vy, vz = vamps(hname, narr[k])
+            t[k] = ttmp
+            uymin[k] = vy[0]   ; uymax[k] = vy[1]
+            uzmin[k] = vz[0]   ; uzmax[k] = vz[1]
+            print("uy = ", uymin[k], '..', uymax[k])
+
+        clf()
+        fig, ax = subplots(ncols=2, figsize=(12, 8))
+        ax[0].errorbar(t, (uymin+uymax)/2., yerr = (uymax-uymin)/2., fmt = '')
+        ax[1].errorbar(t, (uzmin+uzmax)/2., yerr = (uzmax-uzmin)/2., fmt = '')
+        ax[0].set_xlabel(r'$t$') ;     ax[0].set_ylabel(r'$u^y$')
+        ax[1].set_xlabel(r'$t$') ;     ax[1].set_ylabel(r'$u^y$')
+        savefig('vamps.png')
+        

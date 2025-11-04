@@ -22,6 +22,7 @@ from os.path import exists
 # from scipy.signal import correlate
 from scipy.interpolate import make_interp_spline
 from scipy.integrate import simpson
+from scipy.fft import fft, ifft, fftfreq, fft2, fftshift
 
 # parallel support
 from mpi4py import MPI
@@ -38,15 +39,20 @@ import hio
 # plotting
 import plots
 
+# various auxiliary routines
+import utile
+
 # simulating a wave moving to the right along z in pair relativistic plasma
 # E, B, and v are allowed to have all the three components
 
 # physical switches:
 ifmatter = True # feedback
-ifuz = False # left BC for the velocities; without MF, True works much better
+ifuz = True # left BC for the velocities; without MF, True works much better
 ifnowave = False # no EM wave, but the initial velocities are perturbed
 ifpar = False
-ifBbuffer = False
+ifBbuffer = True
+ifvdamp = True
+ifexpdamp  = True
 
 rtol = 1e-8
 vmin = 1e-8
@@ -61,10 +67,10 @@ ndigits = 2 # for output, t is truncated to ndigits after .
 # TODO: energy check
 
 # mesh:
-nz = 1024  # per core
+nz = 2048  # per core
 nc = csize # number of cores
-zlen = 60.
-zbuffer = 2.0
+zlen = 120.
+zbuffer = 5.0
 z = (arange(nz*nc) / double(nz*nc) - 0.5) * zlen
 dz = z[1] - z[0]
 if csize > 1:
@@ -80,21 +86,22 @@ print("core ", crank, ": z_ext = ", z_ext[0], "..", z_ext[-1])
 
 # time
 dtCFL = dz * 0.1 # CFL in 1D should be not very small
-dtfac = 0.01
+dtfac = 0.1
+dtcay = 10000.
 # dtout = 0.01
 ifplot = True
 hdf_alias = 100
-picture_alias = 300
+picture_alias = 100
 
 # injection:
 ExA = 0.0
-EyA = 2.0
+EyA = 20.0
 omega0 = 10.0
 tpack = sqrt(6.)
 tmid = tpack * 10. # the passage of the wave through z=0
-tmax = 4. * tmid
+tmax = zlen + tmid
 
-tstart = 30.
+tstart = 0.
 
 print("tmax = ", tmax)
 
@@ -103,8 +110,19 @@ if ifnowave:
     ExA = 0.
 
 Bz = 0.0
-Bxbgd = 8.0
+Bxbgd = 5.0
 Bybgd = 0.0
+
+# Fourier smoothing
+f = fftfreq(nz, d = dz / (2. * pi)) # Fourier mesh
+fsq = (f * conj(f)).real
+
+def sign(x):
+    if x > 0.:
+        return 1.
+    elif x < 0.:
+        return -1.
+    return 0.
 
 def Aleft(t):
     return -sin(omega0 * (t -tmid - dz/2.)) * exp(-((t - dz/2.-tmid)/tpack)**2/2.) / omega0
@@ -116,48 +134,36 @@ def Bleft(t):
     return Eleft(t - dz/2.)
 # sin(omega0 * (t-tmid+dz/2.)) * exp(-((t+dz/2.-tmid)/tpack)**2/2.)
 
+def bufferfun(x):
+
+    f = copy(x)
+    
+    w0 = (x<=-1.)
+    w1 = (x>=1.)
+    wmid = (x < 1.) & (x > -1.)
+
+    if w0.sum()  > 1:
+        f[w0] = 0.
+    if w1.sum() > 1:
+        f[w1] = 1.
+
+    if wmid.sum() > 1:
+        f[wmid] = 0.5 + 0.75 * x[wmid] - 0.25 * x[wmid]**3
+
+    return f
+        
 def buffermod(zz):
-    znorm = (zlen/2. - zbuffer)
-    return (zz > -znorm) * (zz < znorm) * (zz / znorm + 1.) * (1. - zz/znorm) 
+    znorm = -(zlen/2. - zbuffer)
+    dzstep = 15. * dz
+    bfr = bufferfun((zz-znorm)/dzstep)
+    
+    return bfr # (zz > -znorm) * (zz < znorm)   * (zz / znorm + 1.) * (1. - zz/znorm) 
 
 def Bbuffermod(zz):
     if ifBbuffer:
         return buffermod(zz)
     else:
         return zz*0.+1.
-
-def phiRL(uside, v):
-    # slope limiter
-    # uside has the size of nz+1
-    # so does v
-
-    if (size(v) != size(uside)):
-        print(size(v), size(uside))
-        ii = input("phiRL: v and u do not match")
-    
-    allleft = (v[1:] >= 0.) * (v[:-1] >= 0.)
-    allright = (v[1:] <= 0.) * (v[:-1] <= 0.)
-
-    middle = 1-(allleft|allright)
-
-    u = zeros(size(uside)-1)
-
-    if allleft.sum() > 0:
-        u[allleft] = (uside[:-1])[allleft]
-
-    if allright.sum() > 0:
-        u[allright] = (uside[1:])[allright]
-
-    if middle.sum() > 0:
-        # slope limiter; chooses the smaller slope
-        wleft = (abs(uside[:-1]) > abs(uside[1:])) * middle
-        wright = (abs(uside[:-1]) <= abs(uside[1:])) * middle
-        if wleft.sum() > 0:
-            u[wleft] = (uside[1:])[wleft]
-        if wright.sum() > 0:
-            u[wright] = (uside[:-1])[wright]
-        
-    return u    
 
 def dBstep(Ex, Ey):
     dBx = zeros(nz) ;  dBy = zeros(nz) # ; v = ones(nz+1)
@@ -180,50 +186,26 @@ def dEstep(Bx, By, jx, jy, v):
     dEy = (Bx[1:-1]-Bx[:-2])/dz
     
     if ifmatter:
-        dEx += phiRL(jx, v)[1:]
-        dEy += phiRL(jy, v)[1:]
+        dEx += utile.phiRL(jx, v)[1:]
+        dEy += utile.phiRL(jy, v)[1:]
     
     return dEx, dEy
 
-def parcoeff(v):
-    # coefficients of 2nd order polynomials fitting any function on an extended grid to arbitrary points within
-    acoeff = (v[2:]+v[:-2]-2. * v[1:-1])/2.
-    bcoeff = (v[2:]-v[:-2])/2.
-    ccoeff = v[1:-1]
-
-    return acoeff, bcoeff, ccoeff
-
-def phifun(r1, r2):
-    w0 = (r1**2+r2**2) < rtol
-    w1 = (r1**2+r2**2) >= rtol
-    r = copy(r1)
-
-    if w1.sum() > 0:
-        r[w1] = (2. * r1 * r2**2 / (r1**2+r2**2))[w1] # van Albada
-        # ((r1*sign(r2)+abs(r1))/(abs(r2)+abs(r1)))[w1] # van Leer's, nominator and denominator * abs(r2)
-    
-    if w0.sum() > 0:
-        r[w0] = 1.
-    
-    #    print(r.min(), r.max())
-
-    return r
-
 def dvstep_parabolic(ux, uy, uz, n, s, Ex, Ey, Bx, By):
 
-    uz = maximum(uz, 0.)
+    # uz = maximum(uz, 0.)
     
     gamma = sqrt(1. + ux**2 + uy**2 + uz**2)
 
-    uy_acoeff, uy_bcoeff, uy_ccoeff = parcoeff(uy)
-    ux_acoeff, ux_bcoeff, ux_ccoeff = parcoeff(ux)
-    uz_acoeff, uz_bcoeff, uz_ccoeff = parcoeff(uz)
+    uy_acoeff, uy_bcoeff, uy_ccoeff = utile.parcoeff(uy)
+    ux_acoeff, ux_bcoeff, ux_ccoeff = utile.parcoeff(ux)
+    uz_acoeff, uz_bcoeff, uz_ccoeff = utile.parcoeff(uz)
 
     vx = ux / gamma ; vy = uy / gamma ; vz =  uz / gamma
     
-    vz_acoeff, vz_bcoeff, vz_ccoeff = parcoeff(vz)
-    n_acoeff, n_bcoeff, n_ccoeff = parcoeff(maximum(n, 0.))
-    s_acoeff, s_bcoeff, s_ccoeff = parcoeff(s)
+    vz_acoeff, vz_bcoeff, vz_ccoeff = utile.parcoeff(vz)
+    n_acoeff, n_bcoeff, n_ccoeff = utile.parcoeff(maximum(n, 0.))
+    s_acoeff, s_bcoeff, s_ccoeff = utile.parcoeff(s)
 
     # mean non-linear terms:    
     
@@ -235,10 +217,9 @@ def dvstep_parabolic(ux, uy, uz, n, s, Ex, Ey, Bx, By):
     dux = 2. * vz_ccoeff * ux_bcoeff 
     duy = 2. * vz_ccoeff * uy_bcoeff
     duz = 2. * vz_ccoeff * uz_bcoeff 
+    '''    
+   # what if vz_max > 1? then
     '''
-    
-    # what if vz_max > 1? then
-    
     vzpeak = vz_ccoeff - vz_bcoeff**2/4./vz_acoeff
     zpeak = - vz_bcoeff / 2./ vz_acoeff
     wvz = (abs(vzpeak)>1.) & (zpeak <= 1.) & (zpeak >= -1.)
@@ -251,15 +232,11 @@ def dvstep_parabolic(ux, uy, uz, n, s, Ex, Ey, Bx, By):
         dux[wvz] /= abs(vzpeak)[wvz]
         duy[wvz] /= abs(vzpeak)[wvz]
         duz[wvz] /= abs(vzpeak)[wvz]
-    
+    '''
     dux /= -dz ; duy /= -dz  ; duz /= -dz
-    
-    #    duy *= 0. #!!!temporary
     
     dux += (Ex[2:]+Ex[1:-1])/2.
     duy += (Ey[2:]+Ey[1:-1])/2.
-
-    # vz *= 0. #!!!temporary
     
     dux += (vy * Bz - vz * (By+Bybgd * buffermod(z_ext)))[1:-1]
     duy += (vz * (Bx+Bxbgd * Bbuffermod(z_ext)) - vx * Bz)[1:-1]
@@ -300,14 +277,19 @@ def dvstep_parabolic(ux, uy, uz, n, s, Ex, Ey, Bx, By):
     else:
         # print("max(n) = ", n[1:-1].max())
         dt_post_n = tmax # in this case, dn is irrelevant
+  
+    # if ifvdamp:
+    #    duD = exp(minimum( 5. - (z-z.min()) * 0.5,1.)) # / (dtcay * dtCFL)
+        # print("duD = ", duD.min(), ".. ", duD.max())
+        # duy -= duD * uy[1:-1]
+    #    duz -= duD * uz[1:-1]        
 
-    wyz = (abs(uy[1:-1]) > vmin) & (abs(uz[1:-1]) > vmin) & (abs(duy) > vmin) & (abs(duz) > vmin)
+    wyz = (abs(uy[1:-1]) > vmin) & (abs(uz[1:-1]) > vmin) & (abs(duy) > vmin) & (abs(duz) > vmin)     
 
     if wyz.sum() > 1:
-        dt_post_v = 1./maximum(abs(duy), abs(duz)).max() #!!! removes [wyz]
+        dt_post_v = 1./maximum(abs(duy[wyz]), abs(duz[wyz])).max() #!!! removes [wyz]
     else:
         dt_post_v = tmax
-        
     return (dux, duy, duz), dn, ds, minimum(dt_post_n, dt_post_v)
     
 def dsteps(t, E, B, u, n, s):
@@ -328,12 +310,13 @@ def dsteps(t, E, B, u, n, s):
             ux0 = ExA * Aleft(t) # + Bybgd * dz
             n0 = 0. # sqrt(1.+uy0**2+ux0**2+uz0**2)
         else:
-            uz0 = -uz[0] # uz[0] - (uz[1]-uz[0])
-            uy0 = uy[0] #  - Bxbgd * dz
-            ux0 = ux[0] # + Bybgd * dz # - (ux[1]-ux[0])# + (Bybgd+ExA*Eleft(t) * 0.) * dz
+            uz0 =  sqrt(maximum(uz[0]**2 + 2. * uy[0] * Bxbgd*dz, 0.)) # uz[0] - (uz[1]-uz[0])
+            # print(uz0)
+            uy0 = uy[0]  - Bxbgd * dz
+            ux0 = ux[0]  + Bybgd * dz # - (ux[1]-ux[0])# + (Bybgd+ExA*Eleft(t) * 0.) * dz
             if ifpar:
-                 uz0_acoeff, uz0_bcoeff, uz0_ccoeff = parcoeff(uz[0:3])
-                 uy0_acoeff, uy0_bcoeff, uy0_ccoeff = parcoeff(uy[0:3])
+                 uz0_acoeff, uz0_bcoeff, uz0_ccoeff = utile.parcoeff(uz[0:3])
+                 uy0_acoeff, uy0_bcoeff, uy0_ccoeff = utile.parcoeff(uy[0:3])
                  uz0 = 4. * uz0_acoeff[0] - 2. * uz0_bcoeff[0] + uz0_ccoeff[0]
                  uy0 = 4. * uy0_acoeff[0] - 2. * uy0_bcoeff[0] + uy0_ccoeff[0]
             n0 = n[0]
@@ -406,6 +389,7 @@ def dsteps(t, E, B, u, n, s):
     dB = dBstep(Ex_ext, Ey_ext)
     dE = dEstep(Bx_ext, By_ext, jx, jy, uz_ext/gamma)
     du, dn, ds, dt_post = dvstep_parabolic(ux_ext, uy_ext, uz_ext, n_ext, s_ext, Ex_ext, Ey_ext, Bx_ext, By_ext)
+
     
     return dE, dB, du, dn, ds, dt_post
         
@@ -438,8 +422,8 @@ def sewerrun():
 
     uzmax = 0.
     
-    while ((t < tmax)): # & (uzmax < 10.* (EyA/omega0)**2/2.)):
-           # & (abs(Bx).max() < ( 10. * EyA)) & (abs(uy).max() < ( 10. * EyA/omega0)) & (n.max() < 10.) & isfinite(n.max())):
+    while ((t < tmax) & (uzmax < 10.* (EyA/omega0)**2/2.)):
+           #           & (abs(Bx).max() < ( 10. * EyA)) & (abs(uy).max() < ( 10. * EyA/omega0)) & (n.max() < 10.) & isfinite(n.max())):
 
         # first step in RK4
         dE, dB, du, dn1, ds1, dt1 = dsteps(t, (Ex, Ey), (Bx, By), (ux, uy, uz), n, s)
@@ -474,9 +458,38 @@ def sewerrun():
         ux = ux + (dux1 + 2. * dux2 + 2. * dux3 + dux4) * dt/6. ; uy = uy + (duy1 + 2. * duy2 + 2. * duy3 + duy4) * dt/6.
         uz = uz + (duz1 + 2. * duz2 + 2. * duz3 + duz4) * dt/6. ; n = n + (dn1 + 2. * dn2 + 2. * dn3 + dn4) * dt/6.
         s = s + (ds1 + 2. * ds2 + 2. * ds3 + ds4) * dt / 6.
-        
-        n = maximum(n, nmin)
 
+        # filtering negative density
+        n = maximum(n, nmin)
+        
+        # velocity damping:
+        
+        if ifvdamp:
+            '''
+            dampcore = exp(-(fsq/fsq.max()*0.1)**2 * dt) + 0.j
+            uz_previous = uz
+            uz = ifft(fft(uz) * dampcore).real
+            uy = ifft(fft(uy) * dampcore).real
+            print(abs(uz-uz_previous).max())
+            if abs(uz-uz_previous).max() > 1e-5:
+                clf()
+                plot(z, uz-uz_previous)
+                savefig('duz.png')
+                tt = input('uz')
+            '''    
+            dtcay = dt * 3.
+            dzcay = 2.
+
+            if ifexpdamp:
+                uy *= exp(-maximum(dt / dtcay * exp(-z/dzcay), 0.))
+                uz *= exp(-maximum(dt / dtcay * exp(-z/dzcay), 0.))
+            else:
+                uyest = Aleft(t+dt-z-zlen/2.-dz/2.)*EyA
+                uzest = uyest**2/2.
+                wout = (z< (-zlen/2.+zbuffer*2.)) # |(z>(zlen/2.-zbuffer))
+                uy[wout] = uyest[wout] - (uy-uyest)[wout] * exp(- dt / dtcay  * (abs(z[wout])-(zlen/2.-zbuffer*2.))**2)
+                uz[wout] = uzest[wout] - (uz-uzest)[wout] * exp(- dt / dtcay * (abs(z[wout])-(zlen/2.-zbuffer*2.))**2)
+        
         uzmax = uz.max()
         uzmax = comm.allreduce(uzmax, op=MPI.MAX)
         
@@ -513,7 +526,7 @@ def sewerrun():
                 gamma = sqrt(1. + uxplot**2 + uyplot**2 + uzplot**2 )
 
                 mtot = simpson(nplot, x = zplot)
-                epatot = simpson(nplot*(gamma-1.), x = zplot)
+                epatot = 2. * simpson(nplot*(gamma-1.), x = zplot)
                 emetot = (simpson(Bxplot**2+Byplot**2, x = zplot) + simpson(Explot**2+Eyplot**2, x = zplot_half))/2.
             
                 tlist.append(t)
@@ -529,6 +542,7 @@ def sewerrun():
                 print("E_PA + E_EM <= ", epatot, " + ", emetot, " = ", epatot + emetot)
 
                 if plotflag: 
+                    ww = (abs(uyplot) > 1e-8)
                     clf()
                     fig = figure()
                     if abs(Bxbgd) > 0.:
@@ -545,16 +559,6 @@ def sewerrun():
                     legend()
                     fig.set_size_inches(12.,5.)
                     savefig('EB{:05d}.png'.format(plot_ctr))
-                    clf()
-                    plot(zplot, uyplot, 'k-', label = r'$u^y$')
-                    if abs(uxplot).max() > 0.:
-                        plot(zplot, uxplot, 'g--', label = r'$u^x$')
-                    plot(zplot, uzplot, 'r:', label = r'$u^z$')
-                    xlabel(r'$z$') 
-                    title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
-                    legend()
-                    fig.set_size_inches(12.,5.)
-                    savefig('uyz{:05d}.png'.format(plot_ctr))
                 
                     uytmp = arange(100)/100. * (uyplot.max() - uyplot.min()) + uyplot.min()
                     gammaplot = sqrt(1.+uxplot**2+uyplot**2+uzplot**2)
@@ -568,8 +572,17 @@ def sewerrun():
                     # xlim(-15, -10) ; ylim(-0.1,0.1)
                     title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
                     savefig('GO{:05d}.png'.format(plot_ctr))
-                    ww = (abs(uyplot) > 1e-8)
                     if ww.sum() > 1:
+                        clf()
+                        plot(zplot[ww], uyplot[ww], 'k-', label = r'$u^y$')
+                        if abs(uxplot).max() > 0.:
+                            plot(zplot[ww], uxplot[ww], 'g--', label = r'$u^x$')
+                        plot(zplot[ww], uzplot[ww], 'r:', label = r'$u^z$')
+                        xlabel(r'$z$') 
+                        title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+                        legend()
+                        fig.set_size_inches(12.,5.)
+                        savefig('uyz{:05d}.png'.format(plot_ctr))
                         clf()
                         plot(zplot[ww], Aleft(t-zplot[ww]-zlen/2.-dz/2.)*EyA, 'b-')
                         # plot(zplot[ww], Aleft(t-splot[ww]-zlen/2.-dz/2.)*EyA, 'b:')
@@ -597,12 +610,14 @@ def sewerrun():
                         
                     
                     clf()
+                    fig = figure()
                     # plot(zplot, 1.+(Aleft(t-zplot+zplot.min())*EyA)**2/2., 'r:')
-                    plot(zplot[nplot>0.], nplot[nplot>0.], '-k')
+                    plot(zplot, nplot, '-k')
                     # cb = colorbar()
                     # cb.set_label(r'$z$')
                     xlabel(r'$z$')   ;   ylabel(r'$n_{\rm p}$') 
                     title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+                    fig.set_size_inches(12.,6.)
                     savefig('n{:05d}.png'.format(plot_ctr))
                     clf()
                     plot(zplot, zplot, 'r:')
