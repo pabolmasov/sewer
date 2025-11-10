@@ -46,7 +46,7 @@ import utile
 # E, B, and v are allowed to have all the three components
 
 # physical switches:
-ifmatter = True # feedback
+ifmatter = False # feedback
 ifuz = True # left BC for the velocities; without MF, True works much better
 ifnowave = False # no EM wave, but the initial velocities are perturbed
 ifpar = False
@@ -69,7 +69,7 @@ ndigits = 2 # for output, t is truncated to ndigits after .
 # mesh:
 nz = 2048  # per core
 nc = csize # number of cores
-zlen = 120.
+zlen = 60.
 zbuffer = 5.0
 z = (arange(nz*nc) / double(nz*nc) - 0.5) * zlen
 dz = z[1] - z[0]
@@ -87,7 +87,9 @@ print("core ", crank, ": z_ext = ", z_ext[0], "..", z_ext[-1])
 # time
 dtCFL = dz * 0.1 # CFL in 1D should be not very small
 dtfac = 0.1
-dtcay = 10000.
+dtcay = 3.
+dzcay = 3.
+
 # dtout = 0.01
 ifplot = True
 hdf_alias = 100
@@ -95,8 +97,8 @@ picture_alias = 100
 
 # injection:
 ExA = 0.0
-EyA = 20.0
-omega0 = 10.0
+EyA = 80.0
+omega0 = 40.0
 tpack = sqrt(6.)
 tmid = tpack * 10. # the passage of the wave through z=0
 tmax = zlen + tmid
@@ -154,7 +156,7 @@ def bufferfun(x):
         
 def buffermod(zz):
     znorm = -(zlen/2. - zbuffer)
-    dzstep = 15. * dz
+    dzstep = zbuffer
     bfr = bufferfun((zz-znorm)/dzstep)
     
     return bfr # (zz > -znorm) * (zz < znorm)   * (zz / znorm + 1.) * (1. - zz/znorm) 
@@ -477,12 +479,10 @@ def sewerrun():
                 savefig('duz.png')
                 tt = input('uz')
             '''    
-            dtcay = dt * 3.
-            dzcay = 2.
-
+            # dtcay = 10. * dt
             if ifexpdamp:
-                uy *= exp(-maximum(dt / dtcay * exp(-z/dzcay), 0.))
-                uz *= exp(-maximum(dt / dtcay * exp(-z/dzcay), 0.))
+                uy *= exp(-maximum(exp(-(z+zlen/2.)/dzcay), 0.)/dtcay)
+                uz *= exp(-maximum(exp(-(z+zlen/2.)/dzcay), 0.)/dtcay)
             else:
                 uyest = Aleft(t+dt-z-zlen/2.-dz/2.)*EyA
                 uzest = uyest**2/2.
