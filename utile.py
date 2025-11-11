@@ -1,5 +1,23 @@
 from numpy import *
 
+def bufferfun(x):
+
+    f = copy(x)
+    
+    w0 = (x<=-1.)
+    w1 = (x>=1.)
+    wmid = (x < 1.) & (x > -1.)
+
+    if w0.sum()  > 1:
+        f[w0] = 0.
+    if w1.sum() > 1:
+        f[w1] = 1.
+
+    if wmid.sum() > 1:
+        f[wmid] = 0.5 + 0.75 * x[wmid] - 0.25 * x[wmid]**3
+
+    return f
+
 def parcoeff(v):
     # coefficients of 2nd order polynomials fitting any function on an extended grid to arbitrary points within
     acoeff = (v[2:]+v[:-2]-2. * v[1:-1])/2.

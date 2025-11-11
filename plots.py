@@ -19,7 +19,7 @@ tmid = tpack * 10.
 tmax = 3. * tmid
 
 def Aleft(t):
-    return -sin(omega0 * (t-tmid)) * exp(-((t-tmid)/tpack)**2/2.) / omega0
+    return -sin(omega0 * t) * exp(-(t/tpack)**2/2.) / omega0
 
 def show_nukeplane(omega0 = 1.0, bgdfield = 0., iflog = True):
 
@@ -163,24 +163,25 @@ def maps(z, tlist, bxlist, uylist, uzlist, nlist, zalias = 1, talias = 1, zcurre
     
     close()
 
-def slew(t, z0, z, ay, bx, uy, uz, n, ctr):
+def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid):
 
     zlen = z0.max() - z0.min()
-    zcenter = tpack * 4.-zlen/2. + t # used for the simulations without a source
-    zcenter = (zcenter - z0.min()) % zlen + z0.min()
+    zcenter = -zlen/2. + t-tmid # used for the simulations without a source
+    # zcenter = (zcenter - z0.min()) % zlen + z0.min()
+    zcenter_show = minimum(maximum(zcenter, z0.min()), z0.max())
     
     clf()
     fig, ax = subplots(ncols=2, figsize=(8, 4))
     ax[0].plot(z0, z0, 'r:')
     ax[0].plot(z0, z, 'k-')
-    ax[0].plot([zcenter - 2.*tpack, zcenter + 2. * tpack], [zcenter - 2.*tpack, zcenter - 2. * tpack], 'g:')
-    ax[0].plot([zcenter - 2.*tpack, zcenter + 2. * tpack], [zcenter + 2.*tpack, zcenter + 2. * tpack], 'g:')
-    ax[0].plot([zcenter - 2.*tpack, zcenter - 2. * tpack], [zcenter - 2.*tpack, zcenter + 2. * tpack], 'g:')
-    ax[0].plot([zcenter + 2.*tpack, zcenter + 2. * tpack], [zcenter - 2.*tpack, zcenter + 2. * tpack], 'g:')
+    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show + 2. * tpack], [zcenter_show - 2.*tpack, zcenter_show - 2. * tpack], 'g:')
+    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show + 2. * tpack], [zcenter_show + 2.*tpack, zcenter_show + 2. * tpack], 'g:')
+    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show - 2. * tpack], [zcenter_show - 2.*tpack, zcenter_show + 2. * tpack], 'g:')
+    ax[0].plot([zcenter_show + 2.*tpack, zcenter_show + 2. * tpack], [zcenter_show- 2.*tpack, zcenter_show + 2. * tpack], 'g:')
     ax[1].plot(z0, z0, 'r:')
     ax[1].plot(z0, z, 'k-')
-    ax[1].set_xlim(zcenter - 2.*tpack, zcenter + 2. * tpack)
-    ax[1].set_ylim(zcenter - 2.*tpack, zcenter + 2. * tpack)    
+    ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
+    ax[1].set_ylim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)    
     ax[0].set_xlabel(r'$z_0$') ; ax[0].set_ylabel(r'$z$')
     ax[1].set_xlabel(r'$z_0$') # ; ax[0].set_ylabel(r'$z$')
     fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
@@ -195,7 +196,7 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr):
     ax[1].plot(z0, ay, 'r-', label = r'$E_y$')
     ax[0].set_xlabel(r'$z_0$') ; ax[0].set_ylabel(r'$E^y$, $B^x$')
     ax[1].set_xlabel(r'$z_0$') # ; ax[0].set_ylabel(r'$z$')
-    ax[1].set_xlim(zcenter - 2.*tpack, zcenter + 2. * tpack)
+    ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
     fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
     ax[0].legend()
     fig.set_size_inches(12.,5.)
@@ -207,7 +208,7 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr):
     ax[0].plot(z, uz, 'r:', label = r'$u^z$')
     ax[1].plot(z, uy, 'k-', label = r'$u^y$')
     ax[1].plot(z, uz, 'r:', label = r'$u^z$')
-    ax[1].set_xlim(zcenter - 2.*tpack, zcenter + 2. * tpack)
+    ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
     ax[0].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$u^{y, z}$')
     ax[1].set_xlabel(r'$z$') # ; ax[0].set_ylabel(r'$z$')
     #     ax[1].set_xlabel(r'$z$') 
@@ -218,17 +219,17 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr):
     
     clf()
     fig, ax = subplots(ncols=2, figsize=(8, 4))
-    ax[0].plot(z, Aleft(z-zcenter +tmid)*EyA, 'b-')
+    ax[0].plot(z0, -Aleft(z0-zcenter)*EyA, 'b-')
     ax[0].plot(z, uy, 'k.')
-    ax[1].plot(z, Aleft(z-zcenter +tmid)*EyA, 'b-')
+    ax[1].plot(z0, -Aleft(z0-zcenter)*EyA, 'b-')
     ax[1].plot(z, uy, 'k.')
-    ax[1].set_xlim(zcenter - 2.*tpack, zcenter + 2. * tpack)
+    ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
     #    ax[1].set_xlabel(r'$z$') 
     ax[0].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$u^{y}$')
     ax[1].set_xlabel(r'$z$') # ; ax[0].set_ylabel(r'$z$')
 
-    ax[0].set_ylabel(r'$u^y$')  ;   ax[1].set_ylabel(r'$u^y$')
-    ax[0].set_title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+    # ax[0].set_ylabel(r'$u^y$')  ;   ax[1].set_ylabel(r'$u^y$')
+    fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
     savefig('slewuGO{:05d}.png'.format(ctr))
 
     clf()
