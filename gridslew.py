@@ -29,6 +29,9 @@ import plots
 # auxiliary functions
 import utile
 
+# time and efficiency measurement
+from timer import Timer
+
 # simulating a wave moving to the right along z in pair relativistic plasma
 # E, B, and v are allowed to have all the three components
 
@@ -71,6 +74,9 @@ tmax = zlen + tmid
 
 # density floor
 nlim = 1e-3
+
+# maximal number of monotonic chunks
+nmonmax = 100
 
 # decay parameters
 dtcay = dtCFL * 10.0
@@ -162,7 +168,7 @@ def monotonic_split(x):
     return xmon
     
     
-def dsteps(t, z, E, B, u, n0 = None):
+def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
     # one RK4 step
     # z is the grid of the Lagrangian cell coordinates
 
@@ -177,6 +183,8 @@ def dsteps(t, z, E, B, u, n0 = None):
         n0 = ones(nz)
 
     # ghost zones:
+    if thetimer is not None:
+        thetimer.start_comp("BC")
     Ex0 = ExA * Eleft(t)
     Ey0 = EyA * Eleft(t)
     Bx0 = EyA * Bleft(t)
@@ -196,6 +204,8 @@ def dsteps(t, z, E, B, u, n0 = None):
     Bx_ext = concatenate([[Bx0]] + [Bx] + [[Bx1]] )
     By_ext = concatenate([[By0]] + [By] +  [[By1]])
     z_ext = concatenate([[z[0]-dz]] + [z] +  [[z[-1]+dz]])
+    if thetimer is not None:
+        thetimer.stop_comp("BC")
     
     n =  jacoden(z_ext, n0)[1:-1] # lab-frame density n\gamma
 
@@ -207,12 +217,16 @@ def dsteps(t, z, E, B, u, n0 = None):
     # two mappings
     if ifmatter:
         # mapping currents from Lagrangian to Eulerian
+        if thetimer is not None:
+            thetimer.start_comp("currents")
         wg = z[1:] <= z[:-1]
         if wg.sum() <= 0:
-            jxfun = interp1d(z, -n * vx, bounds_error = False, fill_value = 0.) 
-            jyfun = interp1d(z, -n * vy, bounds_error = False, fill_value = 0.)
-            jx = jxfun(z0half_ext) ; jy = jyfun(z0half_ext)
-            vzfun = interp1d(z, vz, bounds_error = False, fill_value = (uz0, uz1))
+            # jxfun = interp1d(z, -n * vx, bounds_error = False, fill_value = 0.) !!! just because we do not really have vx
+            jyfun = interp1d(z, -n * vy, bounds_error = False, fill_value = 0., kind='cubic')
+            # jx = jxfun(z0half_ext) ;
+            jy = jyfun(z0half_ext)
+            jx = jy * 0.
+            vzfun = interp1d(z, vz, bounds_error = False, fill_value = (uz0, uz1), kind='cubic')
             vz_ext = vzfun(z0half_ext)
         else:
             # there are non-monotonic regions
@@ -224,28 +238,35 @@ def dsteps(t, z, E, B, u, n0 = None):
             for k in arange(nchunks):
                 w = (z0half_ext > z[wmonotonic[k]].min()) * (z0half_ext < z[wmonotonic[k]].max())
                 if w.sum() > 2:
-                    jxfun = interp1d(z[wmonotonic[k]], -(n * vx)[wmonotonic[k]], bounds_error = False, fill_value = 0.) 
+                    # jxfun = interp1d(z[wmonotonic[k]], -(n * vx)[wmonotonic[k]], bounds_error = False, fill_value = 0.)  !!! just because we do not really have vx
                     jyfun = interp1d(z[wmonotonic[k]], -(n * vy)[wmonotonic[k]], bounds_error = False, fill_value = 0.)
                     vzfun = interp1d(z[wmonotonic[k]], (vz*n)[wmonotonic[k]], bounds_error = False, fill_value = (uz0, uz1))
                     nfun = interp1d(z[wmonotonic[k]], n[wmonotonic[k]], bounds_error = False, fill_value = (1., 1.))
-                    jx[w] += jxfun(z0half_ext[w]) ; jy[w] += jyfun(z0half_ext[w])
+                    # jx[w] += jxfun(z0half_ext[w])
+                    jy[w] += jyfun(z0half_ext[w])                    
                     vz_ext[w] += vzfun(z0half_ext[w]) ; vz_norm[w] += nfun(z0half_ext[w])
                     # print("size ", w.sum())
             vz_ext[vz_norm > 0.] /= vz_norm[vz_norm > 0.]
+        if thetimer is not None:
+            thetimer.stop_comp("currents")
                     
     # mapping fields from Eulerian grid to Lagransian
-    Exfun = interp1d(z0half, Ex, bounds_error = False, fill_value = (Ex0, Ex1))
-    Eyfun = interp1d(z0half, Ey, bounds_error = False, fill_value = (Ey0, Ey1))
-    Bxfun = interp1d(z0, Bx + Bxbgd, bounds_error = False, fill_value = (Bx0 + Bxbgd, Bx1 + Bxbgd))
-    Byfun = interp1d(z0, By + Bybgd, bounds_error = False, fill_value = (By0 + Bybgd, By1 + Bybgd))
+    if thetimer is not None:
+        thetimer.start_comp("Maxwell")
+    # Exfun = interp1d(z0half, Ex, bounds_error = False, fill_value = (Ex0, Ex1)) !!! no fields or motions in x direction
+    Eyfun = interp1d(z0half, Ey, bounds_error = False, fill_value = (Ey0, Ey1), kind='cubic')
+    Bxfun = interp1d(z0, Bx + Bxbgd, bounds_error = False, fill_value = (Bx0 + Bxbgd, Bx1 + Bxbgd), kind='cubic')
+    # Byfun = interp1d(z0, By + Bybgd, bounds_error = False, fill_value = (By0 + Bybgd, By1 + Bybgd)) !!! assuming no B field in y direction
     
     # Maxwell equations:
     dB = dBstep(Ex_ext, Ey_ext)
     dE = dEstep(Bx_ext, By_ext, jx, jy, vz_ext)
+    if thetimer is not None:
+        thetimer.stop_comp("Maxwell")
 
-    dux = Exfun(z) + vy * Bzbgd - vz * Byfun(z)
+    dux =  vy * Bzbgd # - vz * Byfun(z) # !!! Ex and BY excluded
     duy = Eyfun(z) + vz * Bxfun(z) - vx * Bzbgd
-    duz =  vx * Byfun(z) - vy * Bxfun(z)    
+    duz = -vy * Bxfun(z)  # vx * Byfun(z) - vy * Bxfun(z)     !!! By excluded
     
     dzz = vz 
     
@@ -255,6 +276,12 @@ def dsteps(t, z, E, B, u, n0 = None):
     return dE, dB, (dux, duy, duz), dzz, dt_post, nmon
 
 def sewerrun():
+
+    thetimer = Timer(["total", "step", "io"],
+                     ["BC", "currents", "Maxwell", "RKstep", "cleaning"])
+    if thetimer is not None:
+        thetimer.start("total")
+        # thetimer.start("io")
     
     f = fftfreq(nz, d = dz / (2. * pi)) # Fourier mesh
     z = copy(z0)
@@ -292,10 +319,14 @@ def sewerrun():
         fout_chunks = open('monout.dat', 'w+')
         fout_chunks.write('# t -- Nchunks1 -- Nchunks2 -- Nchunks3 -- Nchunks4 \n')
     
+    thetimer.start("io")
     plots.slew(0., z0, z, Ey, Bx, uy, uz, n0[1:-1], -1)
+    thetimer.stop("io")
     #     ii = input('p')
+    nmon = 0
     
-    while t < tmax:        
+    while (t < tmax) & (nmon < nmonmax):        
+        thetimer.start("step")
         if t > (tstore + dtout - dt):
             # save previous values
             Ex_prev = Ex ;    Ey_prev = Ey  
@@ -306,28 +337,34 @@ def sewerrun():
             gamma_prev = sqrt(1.+ux_prev**2+uy_prev**2+uz_prev**2)
             
         # TODO: make it dictionaries or structures    
-        # dF_ax1, dF_ay1, dF_bx1, dF_by1, dux1, duy1, duz1, dzz1 = onestep(f, F_ax, F_ay, F_bx, F_by, ux, uy, uz, n0, z, t)
-        dE, dB, du, dzz1, dt1, nmon1 = dsteps(t, z, (Ex, Ey), (Bx, By), (ux, uy, uz), n0 = n0)
+        
+        dE, dB, du, dzz1, dt1, nmon1 = dsteps(t, z, (Ex, Ey), (Bx, By), (ux, uy, uz), n0 = n0, thetimer = thetimer)
         dEx1, dEy1 = dE    ;   dBx1, dBy1 = dB   ; dux1, duy1, duz1 = du
         dt = minimum(dtCFL, dt1 * dtfac)# adaptive time step        
         
         # second step in RK4
         dE, dB, du, dzz2, dt2, nmon2 = dsteps(t+dt/2., z + dzz1 * dt/2., (Ex+dEx1 * dt/2., Ey+dEy1 * dt/2.),
-                                           (Bx+dBx1*dt/2., By+dBy1*dt/2.), (ux+dux1*dt/2., uy+duy1*dt/2., uz+duz1*dt/2.), n0 = n0)
+                                           (Bx+dBx1*dt/2., By+dBy1*dt/2.), (ux+dux1*dt/2., uy+duy1*dt/2., uz+duz1*dt/2.),
+                                           n0 = n0, thetimer = thetimer)
         dEx2, dEy2 = dE    ;   dBx2, dBy2 = dB   ; dux2, duy2, duz2 = du
         
         # third step in RK4
         dE, dB, du, dzz3, dt3, nmon3 = dsteps(t+dt/2., z + dzz2 * dt/2., (Ex+dEx2 * dt/2., Ey+dEy2 * dt/2.),
-                                           (Bx+dBx2*dt/2., By+dBy2*dt/2.), (ux+dux2*dt/2., uy+duy2*dt/2., uz+duz2*dt/2.), n0 = n0)
+                                           (Bx+dBx2*dt/2., By+dBy2*dt/2.), (ux+dux2*dt/2., uy+duy2*dt/2., uz+duz2*dt/2.),
+                                           n0 = n0, thetimer = thetimer)
         dEx3, dEy3 = dE    ;   dBx3, dBy3 = dB   ; dux3, duy3, duz3 = du
 
         # fourth step
         dE, dB, du, dzz4, dt4, nmon4 = dsteps(t+dt, z + dzz3 * dt, (Ex+dEx3 * dt, Ey+dEy3 * dt),
-                                           (Bx+dBx3*dt, By+dBy3*dt), (ux+dux3*dt, uy+duy3*dt, uz+duz3*dt), n0 = n0)
+                                           (Bx+dBx3*dt, By+dBy3*dt), (ux+dux3*dt, uy+duy3*dt, uz+duz3*dt),
+                                           n0 = n0, thetimer = thetimer)
         dEx4, dEy4 = dE    ;   dBx4, dBy4 = dB   ; dux4, duy4, duz4 = du
         
 
+        nmon = maximum(nmon1, maximum(nmon2, maximum(nmon3, nmon4)))
+        
         # time step:
+        thetimer.start_comp("RKstep")
         Bx = Bx + (dBx1 + 2. * dBx2 + 2. * dBx3 + dBx4) * dt/6. ; By = By + (dBy1 + 2. * dBy2 + 2. * dBy3 + dBy4) * dt/6.
         Ex = Ex + (dEx1 + 2. * dEx2 + 2. * dEx3 + dEx4) * dt/6. ; Ey = Ey + (dEy1 + 2. * dEy2 + 2. * dEy3 + dEy4) * dt/6.
 
@@ -337,8 +374,10 @@ def sewerrun():
         z  += (dzz1 + dzz2 * 2. + dzz3 * 2. + dzz4) / 6. * dt
         # F_n += (dF_n1 + dF_n2 * 2. + dF_n3 * 2. + dF_n4) / 6. * dt
         t += dt
+        thetimer.stop_comp("RKstep")
 
         # z cleaning
+        thetimer.start_comp("cleaning")
         if ifzclean:
             znew, uznew = zclean(z, uz)
             z = znew; uz = uznew
@@ -349,9 +388,14 @@ def sewerrun():
             # z = z + (z0-z) * (1.-dampfactor)
             uz *= dampfactor
             uy *= dampfactor
-                
+        thetimer.stop_comp("cleaning")
+        thetimer.stop("step")
+               
         if t > (tstore + dtout):
+            thetimer.start("io")
             print("t = ", t)
+            if nmon > 1:
+                print(nmon, " monotonic regions\n")
 
             z_ext = concatenate([[z[0]-dz]] + [z] +  [[z[-1]+dz]])
             n = jacoden(z_ext, n0)[1:-1]
@@ -376,7 +420,7 @@ def sewerrun():
                 fout.write(str(t) + ' ' + str(z[k]) + ' ' + str(Bx[k])+'\n')
             fout.flush()
 
-            mtot = simpson((n0*gamma).real, x = z0)
+            mtot = simpson((n0[1:-1]*gamma).real, x = z0)
             epatot = simpson((n0[1:-1]*gamma * (gamma-1.)).real, x = z0)
             emetot = (simpson(Bx**2+By**2, x = z0) + simpson(Ex**2+Ey**2, x = z0half))/2.
 
@@ -402,8 +446,15 @@ def sewerrun():
             uzlist.append(uz_prev.real +  ((tstore-(t-dt))/dt) * (uz-uz_prev))
             nlist.append((n_prev/gamma_prev).real +  ((tstore-(t-dt))/dt) * (n/gamma - n_prev/gamma_prev))
             tstore += dtout
-            ctr += 1
+            
+            thetimer.stop("io")
+            if ctr%picture_alias==0:
+                thetimer.stats("step")
+                thetimer.stats("io")
+                thetimer.comp_stats()
+                thetimer.purge_comps()           
 
+            ctr += 1
     fout.close()   ; fout_energy.close()
     hout.close()
     if ifmatter:

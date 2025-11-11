@@ -136,28 +136,11 @@ def Bleft(t):
     return Eleft(t - dz/2.)
 # sin(omega0 * (t-tmid+dz/2.)) * exp(-((t+dz/2.-tmid)/tpack)**2/2.)
 
-def bufferfun(x):
-
-    f = copy(x)
-    
-    w0 = (x<=-1.)
-    w1 = (x>=1.)
-    wmid = (x < 1.) & (x > -1.)
-
-    if w0.sum()  > 1:
-        f[w0] = 0.
-    if w1.sum() > 1:
-        f[w1] = 1.
-
-    if wmid.sum() > 1:
-        f[wmid] = 0.5 + 0.75 * x[wmid] - 0.25 * x[wmid]**3
-
-    return f
         
 def buffermod(zz):
     znorm = -(zlen/2. - zbuffer)
     dzstep = zbuffer
-    bfr = bufferfun((zz-znorm)/dzstep)
+    bfr = utile.bufferfun((zz-znorm)/dzstep)
     
     return bfr # (zz > -znorm) * (zz < znorm)   * (zz / znorm + 1.) * (1. - zz/znorm) 
 
@@ -399,8 +382,7 @@ def sewerrun():
     
     # E on the edges, B in cell centres (Bz is not evolves, just postulated)
     Bx = -EyA * Bleft(tstart-zlen/2.-dz-z) # minimal z-dz is the coord of the ghost zone
-    By = ExA * Bleft(tstart-zlen/2.-dz -z)
-    
+    By = ExA * Bleft(tstart-zlen/2.-dz -z)   
     Ex = ExA * Eleft(tstart-zlen/2.-dz-zhalf) # ghost zone + dz/2.
     Ey = EyA * Eleft(tstart-zlen/2.-dz-zhalf)
     #     Ex = zeros(nz)
