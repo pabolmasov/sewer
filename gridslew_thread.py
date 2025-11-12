@@ -23,6 +23,10 @@ from scipy.interpolate import interp1d
 # HDF5 io:
 import hio
 
+# threading parallelization
+import threading
+
+
 # plotting
 import plots
 
@@ -43,10 +47,12 @@ iflnn = False
 ifgridn = False
 ifsource = False
 ifvdamp = False
-ifassumemonotonic = False
+ifassumemonotonic = True
+
+ifthread = True
 
 # mesh:
-nz = 8192
+nz = 1024
 zlen = 60.
 z0 = (arange(nz) / double(nz) - 0.5) * zlen # centres of Euler cells
 dz = z0[1] - z0[0]
@@ -86,7 +92,7 @@ zbuffer = 5.0
 sclip = 2.0
 
 # background magnetic field
-Bxbgd = 5.0
+Bxbgd = 0.0
 Bybgd = 0.0
 Bzbgd = 0.0
 
@@ -143,7 +149,14 @@ def dEstep(Bx, By, jx, jy, v):
     
     return dEx, dEy
 
+def thread_Bstep(Ex, Ey, dBx):
+    dB1, dB2 = dBstep(Ex, Ey)
+    dBx[:] = dB1
 
+def thread_Estep(Bx, By, jx, jy, v, dEy):
+    dE1, dE2 = dBstep(Bx, By)
+    dEy[:] = dE1
+    
 def jacoden(z, n0):
     # density as a Jacobian (assuming n0 = 1.0)
     return dz * n0 / maximum(abs(roll(z, 1)- z), abs(z -roll(z, -1)))
@@ -167,6 +180,14 @@ def monotonic_split(x):
     xmon.append(asarray(currentlist))
             
     return xmon
+
+def thread_interp(x, y, x1, y1, fill_values = None):
+    '''
+    fn shd be a list of functions
+    '''
+    
+    funn = interp1d(x, y, bounds_error = False, fill_value = fill_values, kind='cubic')    
+    y1[:] = funn(x1)
     
     
 def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
@@ -223,12 +244,18 @@ def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
         wg = z[1:] < z[:-1] # make this condition harder? 
         if (wg.sum() <= 2) | ifassumemonotonic:
             # jxfun = interp1d(z, -n * vx, bounds_error = False, fill_value = 0.) !!! just because we do not really have vx
-            jyfun = interp1d(z, -n * vy, bounds_error = False, fill_value = 0., kind='cubic')
-            # jx = jxfun(z0half_ext) ;
-            jy = jyfun(z0half_ext)
-            jx = jy * 0.
-            vzfun = interp1d(z, vz, bounds_error = False, fill_value = (uz0, uz1), kind='cubic')
-            vz_ext = vzfun(z0half_ext)
+
+            jx = zeros(nz+2)
+            if ifthread:
+                jy = zeros(nz+2)     ;           vz_ext = zeros(nz+2)
+                jythread = threading.Thread(target = thread_interp, args = (z, -n * vy, z0half_ext, jy), kwargs = {'fill_values': 0.})
+                vzthread = threading.Thread(target = thread_interp, args = (z, vz, z0half_ext, vz_ext), kwargs = {'fill_values': 0.})
+            else:
+                jyfun = interp1d(z, -n * vy, bounds_error = False, fill_value = 0., kind='cubic')
+                # jx = jxfun(z0half_ext) ;
+                jy = jyfun(z0half_ext)            
+                vzfun = interp1d(z, vz, bounds_error = False, fill_value = (uz0, uz1), kind='cubic')
+                vz_ext = vzfun(z0half_ext)
         else:
             # there are non-monotonic regions
             wmonotonic = monotonic_split(z)
@@ -248,26 +275,51 @@ def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
                     vz_ext[w] += vzfun(z0half_ext[w]) ; vz_norm[w] += nfun(z0half_ext[w])
                     # print("size ", w.sum())
             vz_ext[vz_norm > 0.] /= vz_norm[vz_norm > 0.]
-        if thetimer is not None:
-            thetimer.stop_comp("currents")
+            
                     
+    if ifthread:
+        Eyint = zeros(nz) ; Bxint = zeros(nz)
+        Eythread = threading.Thread(target = thread_interp, args = (z0half, Ey, z, Eyint), kwargs = {'fill_values': (Ey0, Ey1)})
+        Bxthread = threading.Thread(target = thread_interp, args = (z0half, Bx, z, Bxint), kwargs = {'fill_values': (Bx0 + Bxbgd, Bx1 + Bxbgd)})
+        # Exfun = interp1d(z0half, Ex, bounds_error = False, fill_value = (Ex0, Ex1)) !!! no fields or motions in x direction
+    else:
+        Eyfun = interp1d(z0half, Ey, bounds_error = False, fill_value = (Ey0, Ey1), kind='cubic')
+        Bxfun = interp1d(z0, Bx + Bxbgd, bounds_error = False, fill_value = (Bx0 + Bxbgd, Bx1 + Bxbgd), kind='cubic')
+        # Byfun = interp1d(z0, By + Bybgd, bounds_error = False, fill_value = (By0 + Bybgd, By1 + Bybgd)) !!! assuming no B field in y direction
+        Eyint = Eyfun(z) ; Bxint = Bxfun(z)
+       
+    if ifthread:
+        # now launch and join all the threads:
+        jythread.start() ; vzthread.start() ; Eythread.start() ; Bxthread.start()         
+        jythread.join() ; vzthread.join() ; Eythread.join() ; Bxthread.join()
+        
+    if thetimer is not None:
+        thetimer.stop_comp("currents")
     # mapping fields from Eulerian grid to Lagransian
     if thetimer is not None:
         thetimer.start_comp("Maxwell")
-    # Exfun = interp1d(z0half, Ex, bounds_error = False, fill_value = (Ex0, Ex1)) !!! no fields or motions in x direction
-    Eyfun = interp1d(z0half, Ey, bounds_error = False, fill_value = (Ey0, Ey1), kind='cubic')
-    Bxfun = interp1d(z0, Bx + Bxbgd, bounds_error = False, fill_value = (Bx0 + Bxbgd, Bx1 + Bxbgd), kind='cubic')
-    # Byfun = interp1d(z0, By + Bybgd, bounds_error = False, fill_value = (By0 + Bybgd, By1 + Bybgd)) !!! assuming no B field in y direction
-    
+
     # Maxwell equations:
-    dB = dBstep(Ex_ext, Ey_ext)
-    dE = dEstep(Bx_ext, By_ext, jx, jy, vz_ext)
+    if ifthread:
+        dBx = zeros(nz)  ; dEy = zeros(nz)
+        MaxBthread = threading.Thread(target = thread_Bstep, args = (Ex_ext, Ey_ext, dBx))
+        MaxEthread = threading.Thread(target = thread_Estep, args = (Bx_ext, By_ext, jx, jy, vz_ext, dEy))
+        dE = (dEy*0., dEy)  ; dB = (dBx, dBx * 0.)
+    else:
+        dB = dBstep(Ex_ext, Ey_ext)
+        dE = dEstep(Bx_ext, By_ext, jx, jy, vz_ext)
+
+    if ifthread:
+
+        MaxBthread.start() ; MaxEthread.start()
+        MaxBthread.join() ; MaxEthread.join()
+        
     if thetimer is not None:
         thetimer.stop_comp("Maxwell")
 
     dux =  vy * Bzbgd # - vz * Byfun(z) # !!! Ex and BY excluded
-    duy = Eyfun(z) + vz * Bxfun(z) - vx * Bzbgd
-    duz = -vy * Bxfun(z)  # vx * Byfun(z) - vy * Bxfun(z)     !!! By excluded
+    duy = Eyint + vz * Bxint - vx * Bzbgd
+    duz = -vy * Bxint  # vx * Byfun(z) - vy * Bxfun(z)     !!! By excluded
     
     dzz = vz 
     
