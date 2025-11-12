@@ -43,9 +43,10 @@ iflnn = False
 ifgridn = False
 ifsource = False
 ifvdamp = False
+ifassumemonotonic = False
 
 # mesh:
-nz = 4096
+nz = 8192
 zlen = 60.
 z0 = (arange(nz) / double(nz) - 0.5) * zlen # centres of Euler cells
 dz = z0[1] - z0[0]
@@ -66,11 +67,11 @@ tstart = 0.
 
 # injection:
 ExA = 0.0
-EyA = 20.0
+EyA = 100.0
 omega0 = 10.0
 tpack = sqrt(6.)
 tmid = tpack * 10. # the passage of the wave through z=0
-tmax = zlen + tmid
+tmax = zlen + tmid-tpack
 
 # density floor
 nlim = 1e-3
@@ -109,10 +110,10 @@ def zclean(z, uz):
 
     if w.sum() > 0:
         # print("dd = ", dd)
-        print(w.sum(), "points replaced: ", (z[1:-1])[w])
+        print(w.sum(), "point(s) replaced: ", (z[1:-1])[w])
         (z[1:-1])[w] = ((z[2:]+z[:-2])/2.)[w]
         (uz[1:-1])[w] = ((uz[2:]+uz[:-2])/2.)[w]
-        print(w.sum(), "points replaced: ", (z[1:-1])[w])
+        print(w.sum(), "point(s) replaced (new value(s)): ", (z[1:-1])[w])
         # ii = input("d")
     return z, uz
 
@@ -219,8 +220,8 @@ def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
         # mapping currents from Lagrangian to Eulerian
         if thetimer is not None:
             thetimer.start_comp("currents")
-        wg = z[1:] <= z[:-1]
-        if wg.sum() <= 0:
+        wg = z[1:] < z[:-1] # make this condition harder? 
+        if (wg.sum() <= 2) | ifassumemonotonic:
             # jxfun = interp1d(z, -n * vx, bounds_error = False, fill_value = 0.) !!! just because we do not really have vx
             jyfun = interp1d(z, -n * vy, bounds_error = False, fill_value = 0., kind='cubic')
             # jx = jxfun(z0half_ext) ;
@@ -420,8 +421,8 @@ def sewerrun():
                 fout.write(str(t) + ' ' + str(z[k]) + ' ' + str(Bx[k])+'\n')
             fout.flush()
 
-            mtot = simpson((n0[1:-1]*gamma).real, x = z0)
-            epatot = simpson((n0[1:-1]*gamma * (gamma-1.)).real, x = z0)
+            mtot = simpson(n0[1:-1], x = z0)
+            epatot = simpson((n0[1:-1] * (gamma-1.)).real, x = z0)
             emetot = (simpson(Bx**2+By**2, x = z0) + simpson(Ex**2+Ey**2, x = z0half))/2.
 
             fout_energy.write(str(t) + ' ' + str(mtot) + ' ' + str(emetot) + ' ' + str(epatot) + '\n')
@@ -465,6 +466,9 @@ def sewerrun():
     uylist = asarray(uylist)
     uzlist = asarray(uzlist)
     nlist = asarray(nlist)
+    mlist = asarray(mlist)
+    emelist = asarray(emelist)
+    paelist = asarray(paelist)
 
     print(shape(uylist))
     
@@ -476,22 +480,21 @@ def sewerrun():
     # final mass and energy plots
     if ifplot:
         plots.maps(z0, tlist, bxlist, uylist, uzlist, nlist, zalias = 4, talias = 1, zcurrent = z)
+
+        # make a nukeplane!
+        f = fftfreq(nz, d = dz / (2. * pi)) # Fourier mesh in z
+        ofreq = fftfreq(size(tlist), dtout)
+        bxlist_FF = fft(fft(bxlist, axis = 0), axis = 1) # inner is omega, outer is time
+
+        bxlist_FF = fftshift(bxlist_FF)
+        ofreq = fftshift(ofreq)
+        f = fftshift(f)
         
-        '''
-        clf()
-        plot(tlist, mlist, 'k.')
-        xlabel(r'$t$')  ;  ylabel(r'$M_{\rm tot}$')
-        savefig('m.png')
-        clf()
-        plot(tlist, emelist, 'k.', label = 'EM')
-        plot(tlist, paelist, 'rx', label = 'particles')
-        plot(tlist, paelist+emelist, 'g--', label = 'total')
-        ylim((paelist+emelist).max()*1e-5, (paelist+emelist).max()*2.)
-        yscale('log')
-        legend()
-        xlabel(r'$t$')  ;  ylabel(r'$E$')
-        savefig('e.png')
-        '''
+        hio.okplane_hout(ofreq*2. * pi, f, bxlist_FF, hname = 'okplane_Bx.hdf', dataname = 'Bx')
+        plots.show_nukeplane(omega0 = omega0, bgdfield = Bxbgd)
+        
+        plots.slew_eplot(tlist, mlist, emelist, paelist, omega0)
+                
 # plots.show_nukeplane(omega0 = omega0, bgdfield = Bxbgd)
 sewerrun()
 # ffmpeg -f image2 -r 20 -pattern_type glob -i 'EB*.png' -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2"  -pix_fmt yuv420p -b 8192k EB.mp4

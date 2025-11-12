@@ -11,7 +11,7 @@ cmap = 'viridis'
 ndigits = 2 # round-off digits TODO: make this automatic
 
 # store all this in the globals:
-EyA = 20.0
+EyA = 100.0
 omega0 = 10.0
 
 tpack = sqrt(6.)
@@ -242,7 +242,29 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid):
     title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
     fig.set_size_inches(12.,6.)
     savefig('slewn{:05d}.png'.format(ctr))
+
+def slew_eplot(tlist, mlist, emelist, paelist, omega0):
     
+    clf()
+    plot(tlist, mlist, 'k.')
+    xlabel(r'$t$')  ;  ylabel(r'$M_{\rm tot}$')
+    savefig('m.png')
+    clf()
+    plot(tlist, emelist, 'k.', label = 'EM')
+    plot(tlist, paelist, 'rx', label = 'particles')
+    plot(tlist, paelist+emelist, 'g--', label = 'total')
+    ylim((paelist+emelist).max()*1e-5, (paelist+emelist).max()*2.)
+    yscale('log')
+    legend()
+    xlabel(r'$t$')  ;  ylabel(r'$E$')
+    savefig('e.png')
+    
+    clf()
+    plot(tlist, tlist * 0. + 0.5 / omega0**2)
+    plot(tlist, paelist/emelist)
+    #    yscale('log')
+    xlabel(r'$t$')  ;  ylabel(r'$E$')
+    savefig('erat.png')
     
 def onthefly(z, zshift, ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, ux, uy, uz, n, ctr, t, omega = 1.0):
 
