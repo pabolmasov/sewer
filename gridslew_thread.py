@@ -49,7 +49,10 @@ ifsource = False
 ifvdamp = False
 ifassumemonotonic = True
 
+# threading parameters
 ifthread = True
+nsplit = 2 # should be divisor of nz
+
 
 # mesh:
 nz = 1024
@@ -61,6 +64,10 @@ z0half = z0 - dz/2. # (z[1:]+z[:-1])/2. # faces of Euler cells
 z0_ext = concatenate([[z0[0]-dz], z0, [z0[-1]+dz]]) # Euler cells including the ghost zones
 z0half_ext = concatenate([[z0half[0]-dz], z0half, [z0half[-1]+dz]]) # Euler cells including the ghost zones
 
+if ifthread:
+    threadindices = arange(nsplit+1, dtype = int) * (nz // nsplit) 
+    print("thread indices: ", threadindices)
+    
 # time
 dtCFL = dz * 0.1 # CFL in 1D should be not very small
 dtfac = 0.01
@@ -151,11 +158,11 @@ def dEstep(Bx, By, jx, jy, v):
 
 def thread_Bstep(Ex, Ey, dBx):
     dB1, dB2 = dBstep(Ex, Ey)
-    dBx[:] = dB1
+    dBx = dB1
 
 def thread_Estep(Bx, By, jx, jy, v, dEy):
     dE1, dE2 = dBstep(Bx, By)
-    dEy[:] = dE1
+    dEy = dE1
     
 def jacoden(z, n0):
     # density as a Jacobian (assuming n0 = 1.0)
@@ -183,11 +190,14 @@ def monotonic_split(x):
 
 def thread_interp(x, y, x1, y1, fill_values = None):
     '''
-    fn shd be a list of functions
+    interpolation from the i-th chunk of one grid to the relevant part of the other
     '''
     
-    funn = interp1d(x, y, bounds_error = False, fill_value = fill_values, kind='cubic')    
-    y1[:] = funn(x1)
+    funn = interp1d(x, y, bounds_error = False, fill_value = fill_values, kind='cubic')
+    w = (x1 > x[0]) & (x1 < x[-1]) # assuming monotonic!
+
+    if w.sum() > 0:
+        y1[w] = funn(x1[w])
     
     
 def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
@@ -244,12 +254,14 @@ def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
         wg = z[1:] < z[:-1] # make this condition harder? 
         if (wg.sum() <= 2) | ifassumemonotonic:
             # jxfun = interp1d(z, -n * vx, bounds_error = False, fill_value = 0.) !!! just because we do not really have vx
-
             jx = zeros(nz+2)
             if ifthread:
                 jy = zeros(nz+2)     ;           vz_ext = zeros(nz+2)
-                jythread = threading.Thread(target = thread_interp, args = (z, -n * vy, z0half_ext, jy), kwargs = {'fill_values': 0.})
-                vzthread = threading.Thread(target = thread_interp, args = (z, vz, z0half_ext, vz_ext), kwargs = {'fill_values': 0.})
+                jythreads = [] ;  vzthreads = []
+                for k in arange(nsplit):
+                    jythread = threading.Thread(target = thread_interp, args = (z[threadindices[k]:threadindices[k+1]], -(n * vy)[threadindices[k]:threadindices[k+1]], z0half_ext, jy), kwargs = {'fill_values': 0.})
+                    vzthread = threading.Thread(target = thread_interp, args = (z[threadindices[k]:threadindices[k+1]], vz[threadindices[k]:threadindices[k+1]], z0half_ext, vz_ext), kwargs = {'fill_values': 0.})
+                    jythreads.append(jythread) ; vzthreads.append(vzthread)
             else:
                 jyfun = interp1d(z, -n * vy, bounds_error = False, fill_value = 0., kind='cubic')
                 # jx = jxfun(z0half_ext) ;
@@ -279,8 +291,11 @@ def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
                     
     if ifthread:
         Eyint = zeros(nz) ; Bxint = zeros(nz)
-        Eythread = threading.Thread(target = thread_interp, args = (z0half, Ey, z, Eyint), kwargs = {'fill_values': (Ey0, Ey1)})
-        Bxthread = threading.Thread(target = thread_interp, args = (z0half, Bx, z, Bxint), kwargs = {'fill_values': (Bx0 + Bxbgd, Bx1 + Bxbgd)})
+        Eythreads = [] ; Bxthreads = []
+        for k in arange(nsplit):
+            Eythread = threading.Thread(target = thread_interp, args = (z0half[threadindices[k]:threadindices[k+1]], Ey[threadindices[k]:threadindices[k+1]], z, Eyint), kwargs = {'fill_values': (Ey0, Ey1)})
+            Bxthread = threading.Thread(target = thread_interp, args = (z0half[threadindices[k]:threadindices[k+1]], Bx[threadindices[k]:threadindices[k+1]], z, Bxint), kwargs = {'fill_values': (Bx0 + Bxbgd, Bx1 + Bxbgd)})
+            Eythreads.append(Eythread)  ; Bxthreads.append(Bxthread)
         # Exfun = interp1d(z0half, Ex, bounds_error = False, fill_value = (Ex0, Ex1)) !!! no fields or motions in x direction
     else:
         Eyfun = interp1d(z0half, Ey, bounds_error = False, fill_value = (Ey0, Ey1), kind='cubic')
@@ -290,8 +305,10 @@ def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
        
     if ifthread:
         # now launch and join all the threads:
-        jythread.start() ; vzthread.start() ; Eythread.start() ; Bxthread.start()         
-        jythread.join() ; vzthread.join() ; Eythread.join() ; Bxthread.join()
+        for k in arange(nsplit):
+            jythreads[k].start() ; vzthreads[k].start() ; Eythreads[k].start() ; Bxthreads[k].start()         
+        for k in arange(nsplit):
+            jythreads[k].join() ; vzthreads[k].join() ; Eythreads[k].join() ; Bxthreads[k].join()
         
     if thetimer is not None:
         thetimer.stop_comp("currents")
@@ -310,7 +327,6 @@ def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
         dE = dEstep(Bx_ext, By_ext, jx, jy, vz_ext)
 
     if ifthread:
-
         MaxBthread.start() ; MaxEthread.start()
         MaxBthread.join() ; MaxEthread.join()
         
