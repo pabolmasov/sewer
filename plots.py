@@ -11,7 +11,7 @@ cmap = 'viridis'
 ndigits = 2 # round-off digits TODO: make this automatic
 
 # store all this in the globals:
-EyA = 20.0
+EyA = 100.0
 omega0 = 10.0
 
 tpack = sqrt(6.)
@@ -19,9 +19,9 @@ tmid = tpack * 10.
 tmax = 3. * tmid
 
 def Aleft(t):
-    return -sin(omega0 * (t-tmid)) * exp(-((t-tmid)/tpack)**2/2.) / omega0
+    return -sin(omega0 * t) * exp(-(t/tpack)**2/2.) / omega0
 
-def show_nukeplane(omega0 = 1.0, bgdfield = 0.):
+def show_nukeplane(omega0 = 1.0, bgdfield = 0., iflog = True):
 
     bbgdz = bgdfield
     
@@ -34,35 +34,41 @@ def show_nukeplane(omega0 = 1.0, bgdfield = 0.):
     babs = sqrt(bxlist_FF.real**2 + bxlist_FF.imag**2)
     # fftshift(nu)
     # fftshift(k)
-    babs = log10(ma.masked_array(babs, mask = (babs <= 0.)))
     
     clf()
     fig = figure()
-    pcolormesh(omega, k, transpose(babs), vmin = maximum(babs.min(), babs.max()-3.), vmax = babs.max())
-
+    if iflog:
+        babs = log10(ma.masked_array(babs, mask = (babs <= 0.)))
+        pcolormesh(omega, k, transpose(babs), vmin = maximum(babs.min(), babs.max()-3.), vmax = babs.max(), cmap = 'hot')
+    else:
+        pcolormesh(omega, k, transpose(babs), vmin = 0., vmax = babs.max(), cmap = 'hot')
     cb = colorbar()
     cb.set_label(r'$\log_{10} |\tilde{b}_x|$')
     #plot([-f0], [ f0], 'ro', mfc='none')
-    #plot([f0], [ -f0], 'ro', mfc='none')
 
-    ktmp = 3. * omega0 * (arange(100)/double(100)-0.5)
     
     if abs(bgdfield)>0.01:
-        # circularly polarized components
-        plot(ktmp, (ktmp - 1./(ktmp+bbgdz)), 'b:')
-        plot(ktmp, (ktmp - 1./(ktmp-bbgdz)), 'r:')        
-        plot(ktmp, -(ktmp - 1./(ktmp+bbgdz)), 'r:')
-        plot(ktmp, -(ktmp - 1./(ktmp-bbgdz)), 'b:')        
+        # X and fast modes:
+        ktmp = (3. * omega0+2.*bgdfield) * (arange(100)/double(100)-0.5)
+        plot(sqrt((1.+bgdfield**2 + ktmp**2 + sqrt((1.+bgdfield**2 + ktmp**2)**2-4.*ktmp**2*bgdfield**2))/2.), ktmp, 'g:', label=r'$\omega_X$')
+        plot(sqrt((1.+bgdfield**2 + ktmp**2 - sqrt((1.+bgdfield**2 + ktmp**2)**2-4.*ktmp**2*bgdfield**2))/2.), ktmp, 'g:')
+        plot(-sqrt((1.+bgdfield**2 + ktmp**2 + sqrt((1.+bgdfield**2 + ktmp**2)**2-4.*ktmp**2*bgdfield**2))/2.), ktmp, 'g:')
+        plot(-sqrt((1.+bgdfield**2 + ktmp**2 - sqrt((1.+bgdfield**2 + ktmp**2)**2-4.*ktmp**2*bgdfield**2))/2.), ktmp, 'g:')
+        xlim(-omega0*2.-bgdfield*2., omega0*2.+bgdfield*2.)
+        ylim(-omega0*2.-bgdfield*2., omega0*2.+bgdfield*2.)
     else:
-        plot(sqrt(1.5+ktmp**2), ktmp, 'w:')
-        plot(-sqrt(1.5+ktmp**2), ktmp, 'w:')
-        plot(sqrt(1.5+ktmp**2), -ktmp, 'w:')
-        plot(-sqrt(1.5+ktmp**2), -ktmp, 'w:')
+        ktmp = 3. * omega0 * (arange(100)/double(100)-0.5)
+        plot(sqrt(1.+ktmp**2), ktmp, 'w:')
+        plot(-sqrt(1.+ktmp**2), ktmp, 'w:')
+        plot(sqrt(1.+ktmp**2), -ktmp, 'w:')
+        plot(-sqrt(1.+ktmp**2), -ktmp, 'w:')
     
-    xlim(-2. * omega0 , 2. * omega0 )
-    ylim(-2. * omega0, 2. * omega0)
+        xlim(-omega0*3., omega0*3.)
+        ylim(-omega0*3., omega0*3.)
     # xlim(omega.min(), omega.max())
     # ylim(k.min(), k.max())
+    plot([omega0], [ -omega0], 'bo', mfc='none')
+    plot([-omega0], [omega0], 'bo', mfc='none')
     
     #    xlim(1./tmax, 1./dtout)  ;  ylim(1./zlen, 1./dz)
     fig.set_size_inches(15.,10.)
@@ -105,17 +111,21 @@ def maps_dat(filename = "sewerout.dat", zalias = 1, talias = 1):
     savefig('qmap.png')
     
 
-def maps(z, tlist, bxlist, uylist, uzlist, nlist, ctr, zalias = 1, talias = 1):
+def maps(z, tlist, bxlist, uylist, uzlist, nlist, zalias = 1, talias = 1, zcurrent = None):
+
+    if zcurrent is None:
+        zcurrent = z
+
     s = shape(nlist)
-    print(s)
+    print("map shape = ", s)
     # if the two species are stored separately
-    if s[0] == 2:
+    if s[1] == 2:
         nplist = nlist[0]
         nelist = nlist[1]
     s = shape(uzlist)
     print(s)
     # if the two species are stored separately
-    if s[0] == 2:
+    if s[1] == 2:
         uzplist = uzlist[0]
         uzelist = uzlist[1]
     # 2D-visualization
@@ -135,10 +145,10 @@ def maps(z, tlist, bxlist, uylist, uzlist, nlist, ctr, zalias = 1, talias = 1):
     cb1 = fig.colorbar(pc1, ax = ax[0])
     cb1.set_label(r'$u^y$')
     pc2 = ax[1].pcolormesh(z[::zalias], tlist[::talias], uzlist[::talias, ::zalias])
-    cb2 = fig.colorbar(pc1, ax = ax[0])
+    cb2 = fig.colorbar(pc1, ax = ax[1])
     cb2.set_label(r'$u^z$')
-    ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$\omega_{\rm p} t$')  
-    savefig('uzmap.png'.format(ctr))
+    ax[0].set_xlabel(r'$z_0$') ; ax[1].set_xlabel(r'$z_0$') ; ax[0].set_ylabel(r'$\omega_{\rm p} t$')  
+    savefig('uzmap.png')
     
     clf()
     fig, ax = subplots(ncols=2, figsize=(8, 4))
@@ -149,10 +159,113 @@ def maps(z, tlist, bxlist, uylist, uzlist, nlist, ctr, zalias = 1, talias = 1):
     cb2 = fig.colorbar(pc2, ax = ax[1])
     cb2.set_label(r'$\log_{10}n$')
     ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$\omega_{\rm p} t$')  
-    savefig('nmap.png'.format(ctr))
+    savefig('nmap.png')
     
     close()
 
+def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid):
+
+    zlen = z0.max() - z0.min()
+    zcenter = -zlen/2. + t-tmid # used for the simulations without a source
+    # zcenter = (zcenter - z0.min()) % zlen + z0.min()
+    zcenter_show = minimum(maximum(zcenter, z0.min()), z0.max())
+    
+    clf()
+    fig, ax = subplots(ncols=2, figsize=(8, 4))
+    ax[0].plot(z0, z0, 'r:')
+    ax[0].plot(z0, z, 'k-')
+    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show + 2. * tpack], [zcenter_show - 2.*tpack, zcenter_show - 2. * tpack], 'g:')
+    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show + 2. * tpack], [zcenter_show + 2.*tpack, zcenter_show + 2. * tpack], 'g:')
+    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show - 2. * tpack], [zcenter_show - 2.*tpack, zcenter_show + 2. * tpack], 'g:')
+    ax[0].plot([zcenter_show + 2.*tpack, zcenter_show + 2. * tpack], [zcenter_show- 2.*tpack, zcenter_show + 2. * tpack], 'g:')
+    ax[1].plot(z0, z0, 'r:')
+    ax[1].plot(z0, z, 'k-')
+    ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
+    ax[1].set_ylim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)    
+    ax[0].set_xlabel(r'$z_0$') ; ax[0].set_ylabel(r'$z$')
+    ax[1].set_xlabel(r'$z_0$') # ; ax[0].set_ylabel(r'$z$')
+    fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+    savefig('slewzz{:05d}'.format(ctr))
+
+    clf()
+    # fig = figure()
+    fig, ax = subplots(ncols=2, figsize=(8, 4))
+    ax[0].plot(z0, bx, 'k-', label = r'$B_x$')
+    ax[0].plot(z0, ay, 'r-', label = r'$E_y$')
+    ax[1].plot(z0, bx, 'k-', label = r'$B_x$')
+    ax[1].plot(z0, ay, 'r-', label = r'$E_y$')
+    ax[0].set_xlabel(r'$z_0$') ; ax[0].set_ylabel(r'$E^y$, $B^x$')
+    ax[1].set_xlabel(r'$z_0$') # ; ax[0].set_ylabel(r'$z$')
+    ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
+    fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+    ax[0].legend()
+    fig.set_size_inches(12.,5.)
+    savefig('slewEB{:05d}.png'.format(ctr))
+
+    clf()
+    fig, ax = subplots(ncols=2, figsize=(8, 4))
+    ax[0].plot(z, uy, 'k-', label = r'$u^y$')
+    ax[0].plot(z, uz, 'r:', label = r'$u^z$')
+    ax[1].plot(z, uy, 'k-', label = r'$u^y$')
+    ax[1].plot(z, uz, 'r:', label = r'$u^z$')
+    ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
+    ax[0].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$u^{y, z}$')
+    ax[1].set_xlabel(r'$z$') # ; ax[0].set_ylabel(r'$z$')
+    #     ax[1].set_xlabel(r'$z$') 
+    fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+    ax[0].legend()
+    fig.set_size_inches(12.,5.)
+    savefig('slewuyz{:05d}.png'.format(ctr))
+    
+    clf()
+    fig, ax = subplots(ncols=2, figsize=(8, 4))
+    ax[0].plot(z0, -Aleft(z0-zcenter)*EyA, 'b-')
+    ax[0].plot(z, uy, 'k.')
+    ax[1].plot(z0, -Aleft(z0-zcenter)*EyA, 'b-')
+    ax[1].plot(z, uy, 'k.')
+    ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
+    #    ax[1].set_xlabel(r'$z$') 
+    ax[0].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$u^{y}$')
+    ax[1].set_xlabel(r'$z$') # ; ax[0].set_ylabel(r'$z$')
+
+    # ax[0].set_ylabel(r'$u^y$')  ;   ax[1].set_ylabel(r'$u^y$')
+    fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+    savefig('slewuGO{:05d}.png'.format(ctr))
+
+    clf()
+    fig = figure()
+    # plot(zplot, 1.+(Aleft(t-zplot+zplot.min())*EyA)**2/2., 'r:')
+    plot(z, n, '-k')
+    # cb = colorbar()
+    # cb.set_label(r'$z$')
+    xlabel(r'$z$')   ;   ylabel(r'$n_{\rm p}$') 
+    title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+    fig.set_size_inches(12.,6.)
+    savefig('slewn{:05d}.png'.format(ctr))
+
+def slew_eplot(tlist, mlist, emelist, paelist, omega0):
+    
+    clf()
+    plot(tlist, mlist, 'k.')
+    xlabel(r'$t$')  ;  ylabel(r'$M_{\rm tot}$')
+    savefig('m.png')
+    clf()
+    plot(tlist, emelist, 'k.', label = 'EM')
+    plot(tlist, paelist, 'rx', label = 'particles')
+    plot(tlist, paelist+emelist, 'g--', label = 'total')
+    ylim((paelist+emelist).max()*1e-5, (paelist+emelist).max()*2.)
+    yscale('log')
+    legend()
+    xlabel(r'$t$')  ;  ylabel(r'$E$')
+    savefig('e.png')
+    
+    clf()
+    plot(tlist, tlist * 0. + 0.5 / omega0**2)
+    plot(tlist, paelist/emelist)
+    #    yscale('log')
+    xlabel(r'$t$')  ;  ylabel(r'$E$')
+    savefig('erat.png')
+    
 def onthefly(z, zshift, ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, ux, uy, uz, n, ctr, t, omega = 1.0):
 
     s = shape(n)
@@ -307,6 +420,7 @@ def uGOcompare(hname, narr):
         xlabel(r'$z$') ; ylabel(r'$u^y$')
         fig.set_size_inches(12.,5.)
         savefig('ucomp{:05d}.png'.format(narr))
+        close()
         clf()
         fig = figure()
         plot(z1, uz1, 'ko', label = hname+': $u^z$', mfc = 'none')
@@ -340,6 +454,7 @@ def Hcompare(hname1, hname2, nctr, zoomin = 0., zrange = None):
     # print(abs(ux1).max(), abs(ux2).max())
     
     clf()
+    fig = figure()
     plot(z1, Bx1, 'k-', label = hname1)
     plot(z2, Bx2, 'r:', label = hname2, linewidth = 2)
     legend()
@@ -349,6 +464,9 @@ def Hcompare(hname1, hname2, nctr, zoomin = 0., zrange = None):
         ylim(-sqrt(Bx1**2+Bx2**2).max(), sqrt(Bx1**2+Bx2**2).max())
     title(r'$t = '+str(round(t1, ndigits))+'$')
     xlabel(r'$z$') ; ylabel(r'$B_x$')
+    if zrange is not None:
+        xlim(zrange[0], zrange[1])
+    fig.set_size_inches(12.,5.)
     savefig('compareBx{:05d}_'.format(nctr[0])+'{:05d}'.format(nctr[1]))
 
     # print((EyA* Aleft(-z1)).max())
@@ -368,7 +486,7 @@ def Hcompare(hname1, hname2, nctr, zoomin = 0., zrange = None):
     xlabel(r'$z$') ; ylabel(r'$u^{y, z}$')
     if zrange is not None:
         xlim(zrange[0], zrange[1])
-    fig.set_size_inches(12.,5.)
+    fig.set_size_inches(15.,5.)
     savefig('compareu{:05d}_'.format(nctr[0])+'{:05d}'.format(nctr[1]))
     close()
     

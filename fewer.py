@@ -46,7 +46,7 @@ import utile
 # E, B, and v are allowed to have all the three components
 
 # physical switches:
-ifmatter = True # feedback
+ifmatter = False # feedback
 ifuz = True # left BC for the velocities; without MF, True works much better
 ifnowave = False # no EM wave, but the initial velocities are perturbed
 ifpar = False
@@ -69,7 +69,7 @@ ndigits = 2 # for output, t is truncated to ndigits after .
 # mesh:
 nz = 2048  # per core
 nc = csize # number of cores
-zlen = 120.
+zlen = 60.
 zbuffer = 5.0
 z = (arange(nz*nc) / double(nz*nc) - 0.5) * zlen
 dz = z[1] - z[0]
@@ -87,7 +87,9 @@ print("core ", crank, ": z_ext = ", z_ext[0], "..", z_ext[-1])
 # time
 dtCFL = dz * 0.1 # CFL in 1D should be not very small
 dtfac = 0.1
-dtcay = 10000.
+dtcay = 3.
+dzcay = 3.
+
 # dtout = 0.01
 ifplot = True
 hdf_alias = 100
@@ -95,8 +97,8 @@ picture_alias = 100
 
 # injection:
 ExA = 0.0
-EyA = 20.0
-omega0 = 10.0
+EyA = 80.0
+omega0 = 40.0
 tpack = sqrt(6.)
 tmid = tpack * 10. # the passage of the wave through z=0
 tmax = zlen + tmid
@@ -134,28 +136,11 @@ def Bleft(t):
     return Eleft(t - dz/2.)
 # sin(omega0 * (t-tmid+dz/2.)) * exp(-((t+dz/2.-tmid)/tpack)**2/2.)
 
-def bufferfun(x):
-
-    f = copy(x)
-    
-    w0 = (x<=-1.)
-    w1 = (x>=1.)
-    wmid = (x < 1.) & (x > -1.)
-
-    if w0.sum()  > 1:
-        f[w0] = 0.
-    if w1.sum() > 1:
-        f[w1] = 1.
-
-    if wmid.sum() > 1:
-        f[wmid] = 0.5 + 0.75 * x[wmid] - 0.25 * x[wmid]**3
-
-    return f
         
 def buffermod(zz):
     znorm = -(zlen/2. - zbuffer)
-    dzstep = 15. * dz
-    bfr = bufferfun((zz-znorm)/dzstep)
+    dzstep = zbuffer
+    bfr = utile.bufferfun((zz-znorm)/dzstep)
     
     return bfr # (zz > -znorm) * (zz < znorm)   * (zz / znorm + 1.) * (1. - zz/znorm) 
 
@@ -397,8 +382,7 @@ def sewerrun():
     
     # E on the edges, B in cell centres (Bz is not evolves, just postulated)
     Bx = -EyA * Bleft(tstart-zlen/2.-dz-z) # minimal z-dz is the coord of the ghost zone
-    By = ExA * Bleft(tstart-zlen/2.-dz -z)
-    
+    By = ExA * Bleft(tstart-zlen/2.-dz -z)   
     Ex = ExA * Eleft(tstart-zlen/2.-dz-zhalf) # ghost zone + dz/2.
     Ey = EyA * Eleft(tstart-zlen/2.-dz-zhalf)
     #     Ex = zeros(nz)
@@ -477,12 +461,10 @@ def sewerrun():
                 savefig('duz.png')
                 tt = input('uz')
             '''    
-            dtcay = dt * 3.
-            dzcay = 2.
-
+            # dtcay = 10. * dt
             if ifexpdamp:
-                uy *= exp(-maximum(dt / dtcay * exp(-z/dzcay), 0.))
-                uz *= exp(-maximum(dt / dtcay * exp(-z/dzcay), 0.))
+                uy *= exp(-maximum(exp(-(z+zlen/2.)/dzcay), 0.)/dtcay)
+                uz *= exp(-maximum(exp(-(z+zlen/2.)/dzcay), 0.)/dtcay)
             else:
                 uyest = Aleft(t+dt-z-zlen/2.-dz/2.)*EyA
                 uzest = uyest**2/2.

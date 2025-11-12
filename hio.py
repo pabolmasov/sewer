@@ -59,7 +59,7 @@ def fewout_init(hname, attrs, z, zhalf = None):
 
     return hfile
 
-def fewout_dump(hfile, ctr, t, E, B, u, n):
+def fewout_dump(hfile, ctr, t, E, B, u, n, zcurrent = None):
     '''
     dump single snapshot record
     '''
@@ -82,6 +82,9 @@ def fewout_dump(hfile, ctr, t, E, B, u, n):
     grp.create_dataset("uy", data= uy)
     grp.create_dataset("uz", data= uz)
     grp.create_dataset("n", data= n) # n gamma
+
+    if zcurrent is not None:
+        grp.create_dataset("z", data= zcurrent)
 
     hfile.flush()
     print("HDF5 output, entry"+entry+"\n", flush=True)
