@@ -21,11 +21,11 @@ tmax = 3. * tmid
 def Aleft(t):
     return -sin(omega0 * t) * exp(-(t/tpack)**2/2.) / omega0
 
-def show_nukeplane(omega0 = 1.0, bgdfield = 0., iflog = True):
+def show_nukeplane(omega0 = 1.0, bgdfield = 0., iflog = True, ddir = './'):
 
     bbgdz = bgdfield
     
-    omega, k, datalist = hio.okplane_hread('okplane_Bx.hdf', datanames = ['Bx'])
+    omega, k, datalist = hio.okplane_hread(ddir + '/okplane_Bx.hdf', datanames = ['Bx'])
     bxlist_FF =  datalist[0][:,:]
     # print(type(bxlist_FF[0,0]))
     # print(type(omega[0]))
@@ -73,7 +73,7 @@ def show_nukeplane(omega0 = 1.0, bgdfield = 0., iflog = True):
     #    xlim(1./tmax, 1./dtout)  ;  ylim(1./zlen, 1./dz)
     fig.set_size_inches(15.,10.)
     xlabel(r'$\omega/\omega_{\rm p}$') ; ylabel(r'$k \delta$')    
-    savefig('okplane.png')
+    savefig(ddir + '/okplane.png')
          
 
 def circorrelate(x, y):
@@ -151,11 +151,11 @@ def maps(z, tlist, bxlist, uylist, uzlist, nlist, zalias = 1, talias = 1, zcurre
     savefig('uzmap.png')
     
     clf()
-    fig, ax = subplots(ncols=2, figsize=(8, 4))
+    fig, ax = subplots(ncols=2, figsize=(12, 8))
     pc1 = ax[0].pcolormesh(z[::zalias], tlist[::talias], nlist[::talias, ::zalias])
     cb1 = fig.colorbar(pc1, ax = ax[0])
     cb1.set_label(r'$n$')
-    pc2 = ax[1].pcolormesh(z[::zalias], tlist[::talias], log10(nlist[::talias, ::zalias]))
+    pc2 = ax[1].pcolormesh(z[::zalias], tlist[::talias], log10(nlist[::talias, ::zalias]), vmin = log10(maximum(nlist.min(), 0.1)))
     cb2 = fig.colorbar(pc2, ax = ax[1])
     cb2.set_label(r'$\log_{10}n$')
     ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$\omega_{\rm p} t$')  
@@ -163,7 +163,7 @@ def maps(z, tlist, bxlist, uylist, uzlist, nlist, zalias = 1, talias = 1, zcurre
     
     close()
 
-def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid):
+def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid, ddir = './'):
 
     zlen = z0.max() - z0.min()
     zcenter = -zlen/2. + t-tmid # used for the simulations without a source
@@ -185,7 +185,7 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid):
     ax[0].set_xlabel(r'$z_0$') ; ax[0].set_ylabel(r'$z$')
     ax[1].set_xlabel(r'$z_0$') # ; ax[0].set_ylabel(r'$z$')
     fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
-    savefig('slewzz{:05d}'.format(ctr))
+    savefig(ddir + '/slewzz{:05d}'.format(ctr))
 
     clf()
     # fig = figure()
@@ -200,7 +200,7 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid):
     fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
     ax[0].legend()
     fig.set_size_inches(12.,5.)
-    savefig('slewEB{:05d}.png'.format(ctr))
+    savefig(ddir + '/slewEB{:05d}.png'.format(ctr))
 
     clf()
     fig, ax = subplots(ncols=2, figsize=(8, 4))
@@ -215,7 +215,7 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid):
     fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
     ax[0].legend()
     fig.set_size_inches(12.,5.)
-    savefig('slewuyz{:05d}.png'.format(ctr))
+    savefig(ddir + '/slewuyz{:05d}.png'.format(ctr))
     
     clf()
     fig, ax = subplots(ncols=2, figsize=(8, 4))
@@ -230,7 +230,7 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid):
 
     # ax[0].set_ylabel(r'$u^y$')  ;   ax[1].set_ylabel(r'$u^y$')
     fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
-    savefig('slewuGO{:05d}.png'.format(ctr))
+    savefig(ddir + '/slewuGO{:05d}.png'.format(ctr))
 
     clf()
     fig = figure()
@@ -240,15 +240,17 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid):
     # cb.set_label(r'$z$')
     xlabel(r'$z$')   ;   ylabel(r'$n_{\rm p}$') 
     title(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+    ylim(maximum(n.min(),0.01), n.max())
+    yscale('log')
     fig.set_size_inches(12.,6.)
-    savefig('slewn{:05d}.png'.format(ctr))
+    savefig(ddir + '/slewn{:05d}.png'.format(ctr))
 
-def slew_eplot(tlist, mlist, emelist, paelist, omega0):
+def slew_eplot(tlist, mlist, emelist, paelist, omega0, ddir = './'):
     
     clf()
     plot(tlist, mlist, 'k.')
     xlabel(r'$t$')  ;  ylabel(r'$M_{\rm tot}$')
-    savefig('m.png')
+    savefig(ddir + 'm.png')
     clf()
     plot(tlist, emelist, 'k.', label = 'EM')
     plot(tlist, paelist, 'rx', label = 'particles')
@@ -257,14 +259,14 @@ def slew_eplot(tlist, mlist, emelist, paelist, omega0):
     yscale('log')
     legend()
     xlabel(r'$t$')  ;  ylabel(r'$E$')
-    savefig('e.png')
+    savefig(ddir + 'e.png')
     
     clf()
     plot(tlist, tlist * 0. + 0.5 / omega0**2)
     plot(tlist, paelist/emelist)
     #    yscale('log')
     xlabel(r'$t$')  ;  ylabel(r'$E$')
-    savefig('erat.png')
+    savefig(ddir + 'erat.png')
     
 def onthefly(z, zshift, ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, ux, uy, uz, n, ctr, t, omega = 1.0):
 

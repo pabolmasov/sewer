@@ -42,8 +42,8 @@ ifzclean = True
 iflnn = False
 ifgridn = False
 ifsource = False
-ifvdamp = False
-ifassumemonotonic = True
+ifvdamp = True
+ifassumemonotonic = False # breaks down if z(z0) is really non-monotonic
 
 # mesh:
 nz = 4096
@@ -80,7 +80,7 @@ nlim = 1e-3
 nmonmax = 100
 
 # decay parameters
-dtcay = dtCFL * 10.0
+dtcay = dtCFL * 20.0
 dzcay = 10.0
 zbuffer = 5.0
 sclip = 2.0
@@ -388,7 +388,7 @@ def sewerrun(ddir = None):
         
         # velocity damping
         if ifvdamp:
-            dampfactor = exp(-dt/dtcay  * exp(-(t-tpack)/dzcay - (z0-z0.min()-tpack - zbuffer)/dzcay)) 
+            dampfactor = exp(-dt/dtcay  * exp(-(t-tpack)/dzcay - (z0-z0.min()-tpack - zbuffer)/dzcay * 0. )) 
             # z = z + (z0-z) * (1.-dampfactor)
             uz *= dampfactor
             uy *= dampfactor
@@ -441,7 +441,7 @@ def sewerrun(ddir = None):
             
             if ctr%picture_alias==0:
                 # plots.onthefly(z, (z+zlen/2.+t)%zlen-zlen/2., ax0, ay0, az0, bx0 + Bxbgd, by0 + Bybgd, ax, ay, az, bx + Bxbgd, by + Bybgd, ux, uy, uz, n/gamma, ctr, t)
-                plots.slew(t, z0, z, Ey, Bx+Bxbgd, uy, uz, n, ctr, tmid = tmid)
+                plots.slew(t, z0, z, Ey, Bx+Bxbgd, uy, uz, n, ctr, tmid = tmid, ddir = ddir)
                 
             tlist.append(tstore)
             bxlist.append(Bx_prev.real + ((tstore-(t-dt))/dt) * (Bx-Bx_prev).real + Bxbgd)
@@ -482,7 +482,7 @@ def sewerrun(ddir = None):
 
     # final mass and energy plots
     if ifplot:
-        plots.maps(z0, tlist, bxlist, uylist, uzlist, nlist, zalias = 4, talias = 1, zcurrent = z)
+        plots.maps(z0, tlist, bxlist, uylist, uzlist, nlist, zalias = maximum(nz // 2048, 1), talias = 1, zcurrent = z, ddir = ddir)
 
         # make a nukeplane!
         f = fftfreq(nz, d = dz / (2. * pi)) # Fourier mesh in z
@@ -494,9 +494,9 @@ def sewerrun(ddir = None):
         f = fftshift(f)
         
         hio.okplane_hout(ofreq*2. * pi, f, bxlist_FF, hname = ddir+'/okplane_Bx.hdf', dataname = 'Bx')
-        plots.show_nukeplane(omega0 = omega0, bgdfield = Bxbgd)
+        plots.show_nukeplane(omega0 = omega0, bgdfield = Bxbgd, ddir = ddir)
         
-        plots.slew_eplot(tlist, mlist, emelist, paelist, omega0)
+        plots.slew_eplot(tlist, mlist, emelist, paelist, omega0, ddir = ddir)
                 
 # ffmpeg -f image2 -r 20 -pattern_type glob -i 'EB*.png' -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2"  -pix_fmt yuv420p -b 8192k EB.mp4
 # uGOcompare('sout_A2_nofeed.hdf5', arange(1000))
