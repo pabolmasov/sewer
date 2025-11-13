@@ -53,7 +53,6 @@ ifassumemonotonic = True
 ifthread = True
 nsplit = 2 # should be divisor of nz
 
-
 # mesh:
 nz = 1024
 zlen = 60.
@@ -564,6 +563,12 @@ def sewerrun():
         plots.slew_eplot(tlist, mlist, emelist, paelist, omega0)
                 
 # plots.show_nukeplane(omega0 = omega0, bgdfield = Bxbgd)
-sewerrun()
 # ffmpeg -f image2 -r 20 -pattern_type glob -i 'EB*.png' -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2"  -pix_fmt yuv420p -b 8192k EB.mp4
 # uGOcompare('sout_A2_nofeed.hdf5', arange(1000))
+
+def main():
+
+    if len(sys.argv) > 1:
+        sewerrun(ddir = sys.argv[1])
+    else:
+        sewerrun()

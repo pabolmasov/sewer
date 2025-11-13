@@ -43,10 +43,10 @@ iflnn = False
 ifgridn = False
 ifsource = False
 ifvdamp = False
-ifassumemonotonic = False
+ifassumemonotonic = True
 
 # mesh:
-nz = 8192
+nz = 4096
 zlen = 60.
 z0 = (arange(nz) / double(nz) - 0.5) * zlen # centres of Euler cells
 dz = z0[1] - z0[0]
@@ -108,7 +108,7 @@ def zclean(z, uz):
     # 2 outliers from the average value
     w = abs(z[1:-1]-((z[2:]+z[:-2])/2.)) > (sclip * dz)
 
-    if w.sum() > 0:
+    if (w.sum() > 0) and not(ifassumemonotonic):
         # print("dd = ", dd)
         print(w.sum(), "point(s) replaced: ", (z[1:-1])[w])
         (z[1:-1])[w] = ((z[2:]+z[:-2])/2.)[w]
@@ -276,8 +276,11 @@ def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
     
     return dE, dB, (dux, duy, duz), dzz, dt_post, nmon
 
-def sewerrun():
+def sewerrun(ddir = None):
 
+    if ddir is None:
+        ddir = "."
+    
     thetimer = Timer(["total", "step", "io"],
                      ["BC", "currents", "Maxwell", "RKstep", "cleaning"])
     if thetimer is not None:
@@ -311,13 +314,13 @@ def sewerrun():
     paelist = [] # particle energy
     emelist = [] # EM fields energy    
 
-    fout_energy = open('slew_energy.dat', 'w+')
-    fout = open('slewout.dat', 'w+')
+    fout_energy = open(ddir+'/slew_energy.dat', 'w+')
+    fout = open(ddir+'/slewout.dat', 'w+')
     fout.write('# t -- z -- Bx \n')
     fout_energy.write('# t -- mass -- EM energy -- PA energy\n')
 
     if ifmatter:
-        fout_chunks = open('monout.dat', 'w+')
+        fout_chunks = open(ddir+'/monout.dat', 'w+')
         fout_chunks.write('# t -- Nchunks1 -- Nchunks2 -- Nchunks3 -- Nchunks4 \n')
     
     thetimer.start("io")
@@ -409,7 +412,7 @@ def sewerrun():
 
             # HDF5 output:
             if ctr == 0:
-                hout = hio.fewout_init('sout.hdf5',
+                hout = hio.fewout_init(ddir+'/sout.hdf5',
                                        {"ifmatter": ifmatter, "ExA": ExA, "EyA": EyA,
                                         "omega0": omega0, "tpack": tpack, "tmid": tmid, "Bz": Bzbgd, "Bx": Bxbgd},
                                        z, zhalf = z)
@@ -490,12 +493,26 @@ def sewerrun():
         ofreq = fftshift(ofreq)
         f = fftshift(f)
         
-        hio.okplane_hout(ofreq*2. * pi, f, bxlist_FF, hname = 'okplane_Bx.hdf', dataname = 'Bx')
+        hio.okplane_hout(ofreq*2. * pi, f, bxlist_FF, hname = ddir+'/okplane_Bx.hdf', dataname = 'Bx')
         plots.show_nukeplane(omega0 = omega0, bgdfield = Bxbgd)
         
         plots.slew_eplot(tlist, mlist, emelist, paelist, omega0)
                 
-# plots.show_nukeplane(omega0 = omega0, bgdfield = Bxbgd)
-sewerrun()
 # ffmpeg -f image2 -r 20 -pattern_type glob -i 'EB*.png' -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2"  -pix_fmt yuv420p -b 8192k EB.mp4
 # uGOcompare('sout_A2_nofeed.hdf5', arange(1000))
+
+def main():
+
+    if len(sys.argv) > 1:
+        outdir = sys.argv[1]
+        if not os.path.exists(outdir):
+            os.makedirs(outdir)
+        sewerrun(ddir = outdir)
+    else:
+        sewerrun()
+
+# Standard boilerplate to call the main() function to begin
+# the program.
+if __name__ == '__main__':
+    main()
+
