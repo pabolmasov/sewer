@@ -11,7 +11,7 @@ cmap = 'viridis'
 ndigits = 2 # round-off digits TODO: make this automatic
 
 # store all this in the globals:
-EyA = 100.0
+EyA = 20.0
 omega0 = 10.0
 
 tpack = sqrt(6.)
@@ -461,7 +461,7 @@ def Hcompare(hname1, hname2, nctr, zoomin = 0., zrange = None):
     if zoomin > 0.:
         zcen = t1 - tmid + z1.min()      
         xlim(zcen - 0.5 * (z1.max()-z1.min())/zoomin, zcen + 0.5 * (z1.max()-z1.min())/zoomin)
-        ylim(-sqrt(Bx1**2+Bx2**2).max(), sqrt(Bx1**2+Bx2**2).max())
+        ylim(-sqrt((Bx1**2).max()+(Bx2**2).max()), sqrt((Bx1**2).max()+(Bx2**2).max()))
     title(r'$t = '+str(round(t1, ndigits))+'$')
     xlabel(r'$z$') ; ylabel(r'$B_x$')
     if zrange is not None:
@@ -480,7 +480,7 @@ def Hcompare(hname1, hname2, nctr, zoomin = 0., zrange = None):
     if zoomin > 0.:
         xlim(zcen - 0.5 * (z1.max()-z1.min())/zoomin, zcen + 0.5 * (z1.max()-z1.min())/zoomin)
         # xlim(zcen - (zcen-z1.min())/zoomin, zcen + (z1.max()-zcen)/zoomin)
-        ylim(-sqrt(uy1**2+uy2**2).max(), sqrt(uy1**2+uy2**2).max())
+        ylim(-sqrt((uy1**2).max()+(uy2**2).max()), sqrt((uy1**2).max()+(uy2**2).max()))
     legend()
     # title(r'$t = '+str(round(t1, ndigits))+'$')
     xlabel(r'$z$') ; ylabel(r'$u^{y, z}$')
