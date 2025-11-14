@@ -38,11 +38,11 @@ from timer import Timer
 # physical switches:
 ifmatter = True
 ifonedirection = False
-ifzclean = True
+ifzclean = False
 iflnn = False
 ifgridn = False
 ifsource = False
-ifvdamp = True
+ifvdamp = False
 ifassumemonotonic = False # breaks down if z(z0) is really non-monotonic
 
 # mesh:
@@ -61,7 +61,7 @@ dtfac = 0.01
 # dtout = 0.01
 ifplot = True
 hdf_alias = 1000
-picture_alias = 10
+picture_alias = 1
 dtout = 0.1
 tstart = 0.
 
@@ -86,7 +86,7 @@ zbuffer = 5.0
 sclip = 2.0
 
 # background magnetic field
-Bxbgd = 5.0
+Bxbgd = 2.0
 Bybgd = 0.0
 Bzbgd = 0.0
 
@@ -309,6 +309,7 @@ def sewerrun(ddir = None):
     bxlist = []
     uzlist = []
     uylist = []
+    zzlist = []
     nlist = []
     mlist = [] # particle mass
     paelist = [] # particle energy
@@ -336,6 +337,7 @@ def sewerrun(ddir = None):
             Ex_prev = Ex ;    Ey_prev = Ey  
             Bx_prev = Bx ;    By_prev = By  
             ux_prev = ux ;    uy_prev = uy  ;    uz_prev = uz
+            z_prev = z
             z_ext = concatenate([[z[0]-dz]] + [z] +  [[z[-1]+dz]])
             n_prev = jacoden(z_ext, n0)[1:-1]
             gamma_prev = sqrt(1.+ux_prev**2+uy_prev**2+uz_prev**2)
@@ -449,6 +451,7 @@ def sewerrun(ddir = None):
             uylist.append(uy_prev.real +  ((tstore-(t-dt))/dt) * (uy-uy_prev))
             uzlist.append(uz_prev.real +  ((tstore-(t-dt))/dt) * (uz-uz_prev))
             nlist.append((n_prev/gamma_prev).real +  ((tstore-(t-dt))/dt) * (n/gamma - n_prev/gamma_prev))
+            zzlist.append(z_prev.real +  ((tstore-(t-dt))/dt) * (z-z_prev))
             tstore += dtout
             
             thetimer.stop("io")
@@ -468,6 +471,7 @@ def sewerrun(ddir = None):
     bxlist = asarray(bxlist)
     uylist = asarray(uylist)
     uzlist = asarray(uzlist)
+    zzlist = asarray(zzlist)
     nlist = asarray(nlist)
     mlist = asarray(mlist)
     emelist = asarray(emelist)
@@ -478,15 +482,16 @@ def sewerrun(ddir = None):
     nt = size(tlist)
 
     #    print(tlist[1]-tlist[0], dtout)
-    print("dtout = ", (tlist[1:]-tlist[:-1]).min(), (tlist[1:]-tlist[:-1]).max())
+    # print("dtout = ", (tlist[1:]-tlist[:-1]).min(), (tlist[1:]-tlist[:-1]).max())
 
     # final mass and energy plots
     if ifplot:
-        plots.maps(z0, tlist, bxlist, uylist, uzlist, nlist, zalias = maximum(nz // 2048, 1), talias = 1, zcurrent = z, ddir = ddir)
+        plots.maps(z0, tlist, bxlist, uylist, uzlist, nlist, zalias = maximum(nz // 2048, 1), talias = 1, zcurrent = zzlist, ddir = ddir)
 
         # make a nukeplane!
         f = fftfreq(nz, d = dz / (2. * pi)) # Fourier mesh in z
         ofreq = fftfreq(size(tlist), dtout)
+        
         bxlist_FF = fft(fft(bxlist, axis = 0), axis = 1) # inner is omega, outer is time
 
         bxlist_FF = fftshift(bxlist_FF)
