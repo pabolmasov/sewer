@@ -111,10 +111,10 @@ def maps_dat(filename = "sewerout.dat", zalias = 1, talias = 1):
     savefig('qmap.png')
     
 
-def maps(z, tlist, bxlist, uylist, uzlist, nlist, zalias = 1, talias = 1, zcurrent = None):
+def maps(z, tlist, bxlist, uylist, uzlist, nlist, zalias = 1, talias = 1, zcurrent = None, ddir = './'):
 
-    if zcurrent is None:
-        zcurrent = z
+    #if zcurrent is None:
+    #    zcurrent = z
 
     s = shape(nlist)
     print("map shape = ", s)
@@ -137,7 +137,7 @@ def maps(z, tlist, bxlist, uylist, uzlist, nlist, zalias = 1, talias = 1, zcurre
     ylim(tlist.min(), tlist.max())
     xlabel(r'$z$') ; ylabel(r'$t$')  
     fig.set_size_inches(15.,10.)
-    savefig('EBmap.png')
+    savefig(ddir + '/EBmap.png')
     
     clf()
     fig, ax = subplots(ncols=2, figsize=(10, 6))
@@ -148,18 +148,38 @@ def maps(z, tlist, bxlist, uylist, uzlist, nlist, zalias = 1, talias = 1, zcurre
     cb2 = fig.colorbar(pc1, ax = ax[1])
     cb2.set_label(r'$u^z$')
     ax[0].set_xlabel(r'$z_0$') ; ax[1].set_xlabel(r'$z_0$') ; ax[0].set_ylabel(r'$\omega_{\rm p} t$')  
-    savefig('uzmap.png')
-    
-    clf()
-    fig, ax = subplots(ncols=2, figsize=(12, 8))
-    pc1 = ax[0].pcolormesh(z[::zalias], tlist[::talias], nlist[::talias, ::zalias])
-    cb1 = fig.colorbar(pc1, ax = ax[0])
-    cb1.set_label(r'$n$')
-    pc2 = ax[1].pcolormesh(z[::zalias], tlist[::talias], log10(nlist[::talias, ::zalias]), vmin = log10(maximum(nlist.min(), 0.1)))
-    cb2 = fig.colorbar(pc2, ax = ax[1])
-    cb2.set_label(r'$\log_{10}n$')
-    ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$\omega_{\rm p} t$')  
-    savefig('nmap.png')
+    savefig(ddir + '/uzmap.png')
+
+    if zcurrent is not None:
+
+        tlist2 = copy(uylist) ; z2 = copy(uylist)
+        for k in arange(size(tlist)):
+            tlist2[k, :] = tlist[k]
+            z2[k, :] = z[:]
+        
+        clf()
+        fig, ax = subplots(ncols=2, figsize=(10, 6))
+        pc1 = ax[0].pcolormesh(zcurrent[::talias, ::zalias], tlist2[::talias, ::zalias], uylist[::talias, ::zalias])
+        cb1 = fig.colorbar(pc1, ax = ax[0])
+        cb1.set_label(r'$u^y$')
+        ax[0].contour(zcurrent[::talias, ::zalias], tlist2[::talias, ::zalias], z2[::talias, ::zalias], colors= 'w')
+        pc2 = ax[1].pcolormesh(zcurrent[::zalias], tlist2[::talias, ::zalias], uzlist[::talias, ::zalias])
+        cb2 = fig.colorbar(pc1, ax = ax[1])
+        cb2.set_label(r'$u^z$')
+        ax[1].contour(zcurrent[::talias, ::zalias], tlist2[::talias, ::zalias], z2[::talias, ::zalias], colors= 'w')
+        ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$\omega_{\rm p} t$')  
+        savefig(ddir + '/Luzmap.png')
+        
+        clf()
+        fig, ax = subplots(ncols=2, figsize=(15, 8))
+        pc1 = ax[0].pcolormesh(zcurrent[::talias, ::zalias], tlist2[::talias, ::zalias], log10(nlist[::talias, ::zalias]), vmin = log10(maximum(nlist.min(), 0.1)))
+        cb1 = fig.colorbar(pc1, ax = ax[0])
+        cb1.set_label(r'$n$')
+        pc2 = ax[1].pcolormesh(z[::zalias], tlist2[::talias, ::zalias], log10(nlist[::talias, ::zalias]), vmin = log10(maximum(nlist.min(), 0.1)))
+        cb2 = fig.colorbar(pc2, ax = ax[1])
+        cb2.set_label(r'$\log_{10}n$')
+        ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z_0$') ; ax[0].set_ylabel(r'$\omega_{\rm p} t$')  
+        savefig(ddir + '/nmap.png')
     
     close()
 
@@ -250,7 +270,7 @@ def slew_eplot(tlist, mlist, emelist, paelist, omega0, ddir = './'):
     clf()
     plot(tlist, mlist, 'k.')
     xlabel(r'$t$')  ;  ylabel(r'$M_{\rm tot}$')
-    savefig(ddir + 'm.png')
+    savefig(ddir + '/m.png')
     clf()
     plot(tlist, emelist, 'k.', label = 'EM')
     plot(tlist, paelist, 'rx', label = 'particles')
@@ -259,14 +279,14 @@ def slew_eplot(tlist, mlist, emelist, paelist, omega0, ddir = './'):
     yscale('log')
     legend()
     xlabel(r'$t$')  ;  ylabel(r'$E$')
-    savefig(ddir + 'e.png')
+    savefig(ddir + '/e.png')
     
     clf()
-    plot(tlist, tlist * 0. + 0.5 / omega0**2)
+    plot(tlist, tlist * 0. + 1. / omega0**2)
     plot(tlist, paelist/emelist)
     #    yscale('log')
     xlabel(r'$t$')  ;  ylabel(r'$E$')
-    savefig(ddir + 'erat.png')
+    savefig(ddir + '/erat.png')
     
 def onthefly(z, zshift, ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, ux, uy, uz, n, ctr, t, omega = 1.0):
 
