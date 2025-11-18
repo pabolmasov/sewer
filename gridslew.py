@@ -57,7 +57,7 @@ z0half_ext = concatenate([[z0half[0]-dz], z0half, [z0half[-1]+dz]]) # Euler cell
 
 # time
 dtCFL = dz * 0.1 # CFL in 1D should be not very small
-dtfac = 0.01
+dtfac = 0.005
 # dtout = 0.01
 ifplot = True
 hdf_alias = 1000
@@ -67,8 +67,8 @@ tstart = 0.
 
 # injection:
 ExA = 0.0
-EyA = 20.0
-omega0 = 10.0
+EyA = 200.0
+omega0 = 40.0
 tpack = sqrt(6.)
 tmid = tpack * 10. # the passage of the wave through z=0
 tmax = zlen + tmid-tpack
@@ -80,13 +80,13 @@ nlim = 1e-3
 nmonmax = 100
 
 # decay parameters
-dtcay = dtCFL * 20.0
+dtcay = 1.0
 dzcay = 10.0
 zbuffer = 5.0
 sclip = 2.0
 
 # background magnetic field
-Bxbgd = 2.0
+Bxbgd = 0.0
 Bybgd = 0.0
 Bzbgd = 0.0
 
@@ -390,8 +390,8 @@ def sewerrun(ddir = None):
         
         # velocity damping
         if ifvdamp:
-            dampfactor = exp(-dt/dtcay  * exp(-(t-tpack)/dzcay - (z0-z0.min()-tpack - zbuffer)/dzcay * 0. )) 
-            # z = z + (z0-z) * (1.-dampfactor)
+            dampfactor = exp(-dt/dtcay  * exp(-maximum((tpack-t), 0.)/dzcay - (z0-z0.min()-tpack - zbuffer)/dzcay )) 
+            z = z + (z0-z) * (1.-dampfactor)
             uz *= dampfactor
             uy *= dampfactor
         thetimer.stop_comp("cleaning")
@@ -426,8 +426,8 @@ def sewerrun(ddir = None):
                 fout.write(str(t) + ' ' + str(z[k]) + ' ' + str(Bx[k])+'\n')
             fout.flush()
 
-            mtot = simpson(n0[1:-1], x = z0)
-            epatot = simpson((n0[1:-1] * (gamma-1.)).real, x = z0)
+            mtot = simpson((n0[1:-1]), x = z0)
+            epatot = 2. * simpson((n0[1:-1] * (gamma-1.)), x = z0)
             emetot = (simpson(Bx**2+By**2, x = z0) + simpson(Ex**2+Ey**2, x = z0half))/2.
 
             fout_energy.write(str(t) + ' ' + str(mtot) + ' ' + str(emetot) + ' ' + str(epatot) + '\n')
