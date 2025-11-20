@@ -5,14 +5,15 @@ from matplotlib.pyplot import *
 import hio
 
 from numpy import *
+from scipy.integrate import simpson
 
 cmap = 'viridis'
 
 ndigits = 2 # round-off digits TODO: make this automatic
 
 # store all this in the globals:
-EyA = 20.0
-omega0 = 10.0
+EyA = 400.0
+omega0 = 40.0
 
 tpack = sqrt(6.)
 tmid = tpack * 10.
@@ -131,7 +132,7 @@ def maps(z, tlist, bxlist, uylist, uzlist, nlist, zalias = 1, talias = 1, zcurre
     # 2D-visualization
     clf()
     fig = figure()
-    pcolormesh(z[::zalias], tlist[::talias], bxlist[::talias, ::zalias])
+    pcolormesh(z[::zalias], tlist[::talias], bxlist[::talias, ::zalias], vmin = -EyA, vmax = EyA)
     colorbar()
     plot(z, z, 'w--')
     ylim(tlist.min(), tlist.max())
@@ -163,7 +164,7 @@ def maps(z, tlist, bxlist, uylist, uzlist, nlist, zalias = 1, talias = 1, zcurre
         cb1 = fig.colorbar(pc1, ax = ax[0])
         cb1.set_label(r'$u^y$')
         ax[0].contour(zcurrent[::talias, ::zalias], tlist2[::talias, ::zalias], z2[::talias, ::zalias], colors= 'w')
-        pc2 = ax[1].pcolormesh(zcurrent[::zalias], tlist2[::talias, ::zalias], uzlist[::talias, ::zalias])
+        pc2 = ax[1].pcolormesh(zcurrent[::talias, ::zalias], tlist2[::talias, ::zalias], uzlist[::talias, ::zalias])
         cb2 = fig.colorbar(pc1, ax = ax[1])
         cb2.set_label(r'$u^z$')
         ax[1].contour(zcurrent[::talias, ::zalias], tlist2[::talias, ::zalias], z2[::talias, ::zalias], colors= 'w')
@@ -285,7 +286,7 @@ def slew_eplot(tlist, mlist, emelist, paelist, omega0, ddir = './'):
     plot(tlist, tlist * 0. + 1. / omega0**2)
     plot(tlist, paelist/emelist)
     #    yscale('log')
-    xlabel(r'$t$')  ;  ylabel(r'$E$')
+    xlabel(r'$t$')  ;  ylabel(r'$E_{\rm PA}/E_{\rm EM}$')
     savefig(ddir + '/erat.png')
     
 def onthefly(z, zshift, ax0, ay0, az0, bx0, by0, ax, ay, az, bx, by, ux, uy, uz, n, ctr, t, omega = 1.0):
@@ -576,3 +577,64 @@ def vamps(hname, narr):
         ax[1].set_xlabel(r'$t$') ;     ax[1].set_ylabel(r'$u^y$')
         savefig('vamps.png')
         
+def energies(hname, narr, zmin = 0.):
+    '''
+    energies as functions of time, with a coordinate cut-off
+    '''
+    
+    snarr = size(narr)
+
+    if snarr <= 1:
+        # reading a single file
+        t, z0, zhalf, E, B, u, n, z = hio.fewout_readdump(hname, narr, ifzcur = True)
+        Ex, Ey = E
+        Bx, By = B
+        ux, uy, uz = u
+
+        EEM = simpson((Ex**2 + Ey**2)[z0>zmin], x = z0[z0>zmin]) + simpson((Bx**2 + By**2)[z0>zmin], x = z0[z0>zmin])/2.
+        EEM0 = simpson(Ex**2 + Ey**2, x = z0) + simpson(Bx**2 + By**2, x = z0)/2.
+        gamma = sqrt(1. + ux**2+uy**2+uz**2)
+        
+        EPA0 = 2. * simpson((n * gamma * (gamma-1.)), x = z)
+        EPA = 2. * simpson((n * gamma * (gamma-1.))[z0>zmin], x = z[z0>zmin])
+
+        print(EEM0, EEM)
+        print(EPA0, EPA)
+        
+        return t, (EEM0, EEM), (EPA0, EPA)
+    else:
+
+        t = zeros(snarr) ; eem = zeros(snarr) ; eem0 = zeros(snarr)
+        epa = zeros(snarr) ; epa0 = zeros(snarr)
+        
+        for k in arange(snarr):
+            ttmp, eemtmp, epatmp = energies(hname, narr[k], zmin = zmin)
+            t[k] = ttmp
+            eem0[k] = eemtmp[0] ; eem[k] = eemtmp[1]
+            epa0[k] = epatmp[0] ; epa[k] = epatmp[1]
+
+        clf()
+        fig = figure()
+        plot(t, epa0, 'r:', label= 'particles, total')
+        plot(t, epa, 'r-', label= 'particles, z > '+str(zmin))
+        plot(t, eem0, 'k:', label= 'electromagnetic, total')
+        plot(t, eem, 'k-', label= 'electromagnetic, z > '+str(zmin))
+        legend()
+        
+        xlabel(r'$t$') ;     ylabel(r'$E$')
+        yscale('log') # ; xscale('log')
+        ylim(eem.max()*1e-4, eem.max())
+        savefig('eens.png')
+
+        clf()
+        fig = figure()
+        plot(t, t*0. + 2./omega0**2 * (1.+(EyA/omega0)**2/8.), 'g--', r'$\omega^{-2}$')
+        plot(t, epa0/eem0, 'r:', label= 'particles/EM, total')
+        plot(t, epa/eem, 'k-', label= 'particles/EM, z > '+str(zmin))
+        legend()
+        
+        xlabel(r'$t$') ;     ylabel(r'$E_{\rm PA}/E_{\rm EM}$')
+        yscale('log') # ; xscale('log')
+        ylim(1e-4, 1.2)
+        savefig('eensrat.png')
+     

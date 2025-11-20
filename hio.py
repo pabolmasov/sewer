@@ -89,7 +89,7 @@ def fewout_dump(hfile, ctr, t, E, B, u, n, zcurrent = None):
     hfile.flush()
     print("HDF5 output, entry"+entry+"\n", flush=True)
 
-def fewout_readdump(hname, ctr):
+def fewout_readdump(hname, ctr, ifzcur = False):
 
     hfile = h5py.File(hname, 'r', libver='latest')
 
@@ -105,11 +105,16 @@ def fewout_readdump(hname, ctr):
     Ex = data["Ex"][:] ;  Ey = data["Ey"][:]
     Bx = data["Bx"][:] ;  By = data["By"][:]
     ux = data["ux"][:] ;  uy = data["uy"][:]  ; uz = data["uz"][:]
-    n = data["n"]
+    if ifzcur:
+        zcur = data["z"][:]
+    n = data["n"][:]
 
     hfile.close()
-    
-    return t, z, zhalf, (Ex, Ey), (Bx, By), (ux, uy, uz), n
+
+    if ifzcur:
+        return t, z, zhalf, (Ex, Ey), (Bx, By), (ux, uy, uz), n, zcur
+    else:
+        return t, z, zhalf, (Ex, Ey), (Bx, By), (ux, uy, uz), n
 
 def fewout_readall(hname, qua = 'Bx', zalias = 2, talias = 2):
 
