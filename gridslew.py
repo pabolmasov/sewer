@@ -38,7 +38,7 @@ from timer import Timer
 # physical switches:
 ifmatter = True
 ifonedirection = False
-ifzclean = False
+ifzclean = True
 iflnn = False
 ifgridn = False
 ifsource = False
@@ -57,7 +57,7 @@ z0half_ext = concatenate([[z0half[0]-dz], z0half, [z0half[-1]+dz]]) # Euler cell
 
 # time
 dtCFL = dz * 0.1 # CFL in 1D should be not very small
-dtfac = 0.005
+dtfac = 0.3
 # dtout = 0.01
 ifplot = True
 hdf_alias = 1000
@@ -67,17 +67,17 @@ tstart = 0.
 
 # injection:
 ExA = 0.0
-EyA = 200.0
+EyA = 400.0
 omega0 = 40.0
 tpack = sqrt(6.)
-tmid = tpack * 10. # the passage of the wave through z=0
-tmax = zlen + tmid-tpack
+tmid = tpack * 5. # the passage of the wave through z=0
+tmax = zlen + tmid - tpack
 
 # density floor
 nlim = 1e-3
 
 # maximal number of monotonic chunks
-nmonmax = 100
+nmonmax = 1e6
 
 # decay parameters
 dtcay = 1.0
@@ -346,7 +346,9 @@ def sewerrun(ddir = None):
         
         dE, dB, du, dzz1, dt1, nmon1 = dsteps(t, z, (Ex, Ey), (Bx, By), (ux, uy, uz), n0 = n0, thetimer = thetimer)
         dEx1, dEy1 = dE    ;   dBx1, dBy1 = dB   ; dux1, duy1, duz1 = du
-        dt = minimum(dtCFL, dt1 * dtfac)# adaptive time step        
+
+        dtz = 1./(maximum(abs(dzz1[1:]), abs(dzz1[:-1]))/abs(z[1:]-z[:-1])).max()
+        dt = minimum(dtCFL/n0.max(), minimum(dt1, dtz) * dtfac)# adaptive time step        
         
         # second step in RK4
         dE, dB, du, dzz2, dt2, nmon2 = dsteps(t+dt/2., z + dzz1 * dt/2., (Ex+dEx1 * dt/2., Ey+dEy1 * dt/2.),
@@ -411,6 +413,7 @@ def sewerrun(ddir = None):
             # print("Bx = ", bx.min(), '..', bx.max())
             # print("Ey = ", ay.min(), '..', ay.max())
             print("dt = ", dt)
+            print("dtz = ", dtz)
 
             # HDF5 output:
             if ctr == 0:

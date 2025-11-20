@@ -12,7 +12,7 @@ cmap = 'viridis'
 ndigits = 2 # round-off digits TODO: make this automatic
 
 # store all this in the globals:
-EyA = 200.0
+EyA = 400.0
 omega0 = 40.0
 
 tpack = sqrt(6.)
