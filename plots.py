@@ -12,10 +12,10 @@ cmap = 'viridis'
 ndigits = 2 # round-off digits TODO: make this automatic
 
 # store all this in the globals:
-EyA = 400.0
-omega0 = 40.0
+EyA = 100.0
+omega0 = 10.0
 
-tpack = sqrt(6.)
+tpack = 1. # sqrt(6.) * 2.
 tmid = tpack * 10.
 tmax = 3. * tmid
 
@@ -30,8 +30,7 @@ def show_nukeplane(omega0 = 1.0, bgdfield = 0., iflog = True, ddir = './'):
     bxlist_FF =  datalist[0][:,:]
     # print(type(bxlist_FF[0,0]))
     # print(type(omega[0]))
-    # print(type(k[0]))
-    
+    # print(type(k[0]))    
     babs = sqrt(bxlist_FF.real**2 + bxlist_FF.imag**2)
     # fftshift(nu)
     # fftshift(k)
@@ -190,19 +189,21 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid, ddir = './'):
     zcenter = -zlen/2. + t-tmid # used for the simulations without a source
     # zcenter = (zcenter - z0.min()) % zlen + z0.min()
     zcenter_show = minimum(maximum(zcenter, z0.min()), z0.max())
-    
+
+    zcur1 = z[(z0 > (zcenter_show - 2.*tpack))*( z< zcenter_show + 2. * tpack)].min()
+    zcur2 = z[(z0 > (zcenter_show - 2.*tpack))*( z< zcenter_show + 2. * tpack)].max()    
     clf()
     fig, ax = subplots(ncols=2, figsize=(8, 4))
     ax[0].plot(z0, z0, 'r:')
     ax[0].plot(z0, z, 'k-')
-    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show + 2. * tpack], [zcenter_show - 2.*tpack, zcenter_show - 2. * tpack], 'g:')
-    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show + 2. * tpack], [zcenter_show + 2.*tpack, zcenter_show + 2. * tpack], 'g:')
-    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show - 2. * tpack], [zcenter_show - 2.*tpack, zcenter_show + 2. * tpack], 'g:')
-    ax[0].plot([zcenter_show + 2.*tpack, zcenter_show + 2. * tpack], [zcenter_show- 2.*tpack, zcenter_show + 2. * tpack], 'g:')
+    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show + 2. * tpack], [zcur1, zcur1], 'g:')
+    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show + 2. * tpack], [zcur2, zcur2], 'g:')
+    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show - 2. * tpack], [zcur1, zcur2], 'g:')
+    ax[0].plot([zcenter_show + 2.*tpack, zcenter_show + 2. * tpack], [zcur1, zcur2], 'g:')
     ax[1].plot(z0, z0, 'r:')
     ax[1].plot(z0, z, 'k-')
     ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
-    ax[1].set_ylim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)    
+    ax[1].set_ylim(zcur1, zcur2)    
     ax[0].set_xlabel(r'$z_0$') ; ax[0].set_ylabel(r'$z$')
     ax[1].set_xlabel(r'$z_0$') # ; ax[0].set_ylabel(r'$z$')
     fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
@@ -239,19 +240,35 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid, ddir = './'):
     savefig(ddir + '/slewuyz{:05d}.png'.format(ctr))
     
     clf()
-    fig, ax = subplots(ncols=2, figsize=(8, 4))
+    fig, ax = subplots(ncols=3, figsize=(12, 4))
     ax[0].plot(z0, -Aleft(z0-zcenter)*EyA, 'b-')
     ax[0].plot(z, uy, 'k.')
     ax[1].plot(z0, -Aleft(z0-zcenter)*EyA, 'b-')
     ax[1].plot(z, uy, 'k.')
+    ax[2].plot(z0, -Aleft(z0-zcenter)*EyA, 'b-')
+    ax[2].plot(z, uy, 'k.')
     ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
-    #    ax[1].set_xlabel(r'$z$') 
+    ax[2].set_xlim(zcenter_show - 2.*2.*pi/omega0, zcenter_show + 2. * 2.*pi/omega0)
     ax[0].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$u^{y}$')
     ax[1].set_xlabel(r'$z$') # ; ax[0].set_ylabel(r'$z$')
-
-    # ax[0].set_ylabel(r'$u^y$')  ;   ax[1].set_ylabel(r'$u^y$')
+    ax[2].set_xlabel(r'$z$') # ; ax[0].set_ylabel(r'$z$')
     fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
     savefig(ddir + '/slewuGO{:05d}.png'.format(ctr))
+    clf()
+    fig, ax = subplots(ncols=3, figsize=(12, 4))
+    ax[0].plot(z0, (Aleft(z0-zcenter)*EyA)**2/2., 'b-')
+    ax[0].plot(z, uz, 'k.')
+    ax[1].plot(z0, (Aleft(z0-zcenter)*EyA)**2/2., 'b-')
+    ax[1].plot(z, uz, 'k.')
+    ax[2].plot(z0, (Aleft(z0-zcenter)*EyA)**2/2., 'b-')
+    ax[2].plot(z, uz, 'k.')
+    ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
+    ax[2].set_xlim(zcenter_show - 2.*2.*pi/omega0, zcenter_show + 2. * 2.*pi/omega0)
+    ax[0].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$u^{z}$')
+    ax[1].set_xlabel(r'$z$') # ; ax[0].set_ylabel(r'$z$')
+    ax[2].set_xlabel(r'$z$') # ; ax[0].set_ylabel(r'$z$')
+    fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+    savefig(ddir + '/slewvGO{:05d}.png'.format(ctr))
 
     clf()
     fig = figure()
@@ -591,12 +608,13 @@ def energies(hname, narr, zmin = 0.):
         Bx, By = B
         ux, uy, uz = u
 
-        EEM = simpson((Ex**2 + Ey**2)[z0>zmin], x = z0[z0>zmin]) + simpson((Bx**2 + By**2)[z0>zmin], x = z0[z0>zmin])/2.
-        EEM0 = simpson(Ex**2 + Ey**2, x = z0) + simpson(Bx**2 + By**2, x = z0)/2.
+        EEM = simpson((Ex**2 + Ey**2)[z0>zmin], x = z0[z0>zmin])/2. + simpson((Bx**2 + By**2)[z0>zmin], x = z0[z0>zmin])/2.
+        EEM0 = simpson(Ex**2 + Ey**2, x = z0)/2. + simpson(Bx**2 + By**2, x = z0)/2.
+
         gamma = sqrt(1. + ux**2+uy**2+uz**2)
         
-        EPA0 = 2. * simpson((n * gamma * (gamma-1.)), x = z)
-        EPA = 2. * simpson((n * gamma * (gamma-1.))[z0>zmin], x = z[z0>zmin])
+        EPA0 = simpson((n * gamma * (gamma-1.)), x = z)
+        EPA = simpson((n * gamma * (gamma-1.))[z0>zmin], x = z[z0>zmin])
 
         print(EEM0, EEM)
         print(EPA0, EPA)
@@ -623,12 +641,12 @@ def energies(hname, narr, zmin = 0.):
         
         xlabel(r'$t$') ;     ylabel(r'$E$')
         yscale('log') # ; xscale('log')
-        ylim(eem.max()*1e-4, eem.max())
+        ylim(eem.max()*1e-4, eem0.max()*1.5)
         savefig('eens.png')
 
         clf()
         fig = figure()
-        plot(t, t*0. + 2./omega0**2 * (1.+(EyA/omega0)**2/8.), 'g--', r'$\omega^{-2}$')
+        plot(t, t*0. + 1./omega0**2 * (1.+(EyA/omega0)**2/8.), 'g--', r'$\omega^{-2}$')
         plot(t, epa0/eem0, 'r:', label= 'particles/EM, total')
         plot(t, epa/eem, 'k-', label= 'particles/EM, z > '+str(zmin))
         legend()
