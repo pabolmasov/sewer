@@ -4,6 +4,9 @@ from matplotlib.pyplot import *
 # HDF5 io:
 import hio
 
+# utilities:
+import utile
+
 from numpy import *
 from scipy.integrate import simpson
 
@@ -15,12 +18,12 @@ ndigits = 2 # round-off digits TODO: make this automatic
 EyA = 100.0
 omega0 = 10.0
 
-tpack = 1. # sqrt(6.) * 2.
+tpack =  sqrt(6.) * 2.
 tmid = tpack * 10.
 tmax = 3. * tmid
 
-def Aleft(t):
-    return -sin(omega0 * t) * exp(-(t/tpack)**2/2.) / omega0
+def Aleft(t, omega0 = omega0, tpack = tpack):
+    return -sin(omega0 * t) * exp(-(t/tpack)**2/2.)
 
 def show_nukeplane(omega0 = 1.0, bgdfield = 0., iflog = True, ddir = './'):
 
@@ -183,15 +186,21 @@ def maps(z, tlist, bxlist, uylist, uzlist, nlist, zalias = 1, talias = 1, zcurre
     
     close()
 
-def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid, ddir = './'):
+def slew(t, z0, z, ay, bx, uy, uz, n, ctr, ddir = './', EyA = EyA, omega0 = omega0, tpack = tpack, tmid = tmid):
 
     zlen = z0.max() - z0.min()
     zcenter = -zlen/2. + t-tmid # used for the simulations without a source
     # zcenter = (zcenter - z0.min()) % zlen + z0.min()
     zcenter_show = minimum(maximum(zcenter, z0.min()), z0.max())
 
-    zcur1 = z[(z0 > (zcenter_show - 2.*tpack))*( z< zcenter_show + 2. * tpack)].min()
-    zcur2 = z[(z0 > (zcenter_show - 2.*tpack))*( z< zcenter_show + 2. * tpack)].max()    
+    wzcur = (z0 > (zcenter_show - 2.*tpack))*( z< zcenter_show + 2. * tpack)
+
+    if wzcur.sum() > 0:
+        zcur1 = z[(z0 > (zcenter_show - 2.*tpack))*( z< zcenter_show + 2. * tpack)].min()
+        zcur2 = z[(z0 > (zcenter_show - 2.*tpack))*( z< zcenter_show + 2. * tpack)].max()
+    else:
+        zcur1 = zcenter_show - 2.*tpack
+        zcur2 = zcenter_show + 2.*tpack
     clf()
     fig, ax = subplots(ncols=2, figsize=(8, 4))
     ax[0].plot(z0, z0, 'r:')
@@ -241,11 +250,11 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid, ddir = './'):
     
     clf()
     fig, ax = subplots(ncols=3, figsize=(12, 4))
-    ax[0].plot(z0, -Aleft(z0-zcenter)*EyA, 'b-')
+    ax[0].plot(z0, -Aleft(z0-zcenter, omega0 = omega0, tpack = tpack)*EyA/omega0, 'b-')
     ax[0].plot(z, uy, 'k.')
-    ax[1].plot(z0, -Aleft(z0-zcenter)*EyA, 'b-')
+    ax[1].plot(z0, -Aleft(z0-zcenter, omega0 = omega0, tpack = tpack)*EyA/omega0, 'b-')
     ax[1].plot(z, uy, 'k.')
-    ax[2].plot(z0, -Aleft(z0-zcenter)*EyA, 'b-')
+    ax[2].plot(z0, -Aleft(z0-zcenter, omega0 = omega0, tpack = tpack)*EyA/omega0, 'b-')
     ax[2].plot(z, uy, 'k.')
     ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
     ax[2].set_xlim(zcenter_show - 2.*2.*pi/omega0, zcenter_show + 2. * 2.*pi/omega0)
@@ -256,11 +265,11 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid, ddir = './'):
     savefig(ddir + '/slewuGO{:05d}.png'.format(ctr))
     clf()
     fig, ax = subplots(ncols=3, figsize=(12, 4))
-    ax[0].plot(z0, (Aleft(z0-zcenter)*EyA)**2/2., 'b-')
+    ax[0].plot(z0, (Aleft(z0-zcenter, omega0 = omega0, tpack = tpack)*EyA/omega0)**2/2., 'b-')
     ax[0].plot(z, uz, 'k.')
-    ax[1].plot(z0, (Aleft(z0-zcenter)*EyA)**2/2., 'b-')
+    ax[1].plot(z0, (Aleft(z0-zcenter, omega0 = omega0, tpack = tpack)*EyA/omega0)**2/2., 'b-')
     ax[1].plot(z, uz, 'k.')
-    ax[2].plot(z0, (Aleft(z0-zcenter)*EyA)**2/2., 'b-')
+    ax[2].plot(z0, (Aleft(z0-zcenter, omega0 = omega0, tpack = tpack)*EyA/omega0)**2/2., 'b-')
     ax[2].plot(z, uz, 'k.')
     ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
     ax[2].set_xlim(zcenter_show - 2.*2.*pi/omega0, zcenter_show + 2. * 2.*pi/omega0)
@@ -271,9 +280,16 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid, ddir = './'):
     savefig(ddir + '/slewvGO{:05d}.png'.format(ctr))
 
     clf()
-    fig = figure()
+    # fig = figure()
+    fig, ax = subplots(ncols=2, figsize=(10, 4), width_ratios = (2,1))
     # plot(zplot, 1.+(Aleft(t-zplot+zplot.min())*EyA)**2/2., 'r:')
-    plot(z, n, '-k')
+    ax[0].plot(z, 1.+uz, 'b-', label = r'$1+u^z$')
+    ax[0].plot(z, n, '.k', label = r'$\gamma n$', mfc = 'none')
+    ax[0].legend()
+    ax[1].plot(z, 1.+uz, 'b-', label = r'$1+u^z$')
+    ax[1].plot(z, n, '.k', label = r'$\gamma n$', mfc = 'none')
+    ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$n$, $1+u^z$')
+    ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
     # cb = colorbar()
     # cb.set_label(r'$z$')
     xlabel(r'$z$')   ;   ylabel(r'$n_{\rm p}$') 
@@ -283,6 +299,8 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid, ddir = './'):
     fig.set_size_inches(12.,6.)
     savefig(ddir + '/slewn{:05d}.png'.format(ctr))
 
+    close('all')
+    
 def slew_eplot(tlist, mlist, emelist, paelist, omega0, ddir = './'):
     
     clf()
@@ -465,7 +483,7 @@ def uGOcompare(hname, narr):
         fig = figure()
         plot(z1, uz1, 'ko', label = hname+': $u^z$', mfc = 'none')
         # plot(z1, (Aleft(t1-z1+z1.min()-dz/2.)*EyA)**2/2., 'b-', label = r'$A^2/2$')
-        plot(z1, (Aleft((z1-z0-t1+tmid)%zlen)*EyA)**2/2., 'b-', label = r'$A^2/2$')
+        plot(z1, (Aleft((z1-z0-t1+tmid)%zlen)*EyA/omega0)**2/2., 'b-', label = r'$A^2/2$')
         legend()
         ylim(-(EyA/omega0)**2/10., (EyA/omega0)**2/2.)
         title(r'$\omega_{\rm p} t = '+str(round(t1, ndigits))+'$')
@@ -480,16 +498,20 @@ def Hcompare(hname1, hname2, nctr, zoomin = 0., zrange = None):
     if size(nctr) <= 1:
         nctr = (nctr, nctr)
     
-    t1, z1, zhalf1, E1, B1, u1, n1 = hio.fewout_readdump(hname1, nctr[0])
+    t1, z1, zhalf1, E1, B1, u1, n1, zcur1 = hio.fewout_readdump(hname1, nctr[0], ifzcur = True)
     Ex1, Ey1 = E1
     Bx1, By1 = B1
     ux1, uy1, uz1 = u1
 
-    t2, z2, zhalf2, E2, B2, u2, n2 = hio.fewout_readdump(hname2, nctr[1])
+    t2, z2, zhalf2, E2, B2, u2, n2, zcur2 = hio.fewout_readdump(hname2, nctr[1], ifzcur = True)
     Ex2, Ey2 = E2
     Bx2, By2 = B2
     ux2, uy2, uz2 = u2
 
+    zlen = maximum(z1, z2).max() - minimum(z1, z2).min()
+    zcenter = -zlen/2. + t1-tmid # used for the simulations without a source
+    # zcenter = (zcenter - z0.min()) % zlen + z0.min()
+    zcenter_show = minimum(maximum(zcenter, minimum(z1, z2).min()), maximum(z1, z2).max())
     # print("t = ", t1, " = ", t2)
     # print(abs(ux1).max(), abs(ux2).max())
     
@@ -529,6 +551,29 @@ def Hcompare(hname1, hname2, nctr, zoomin = 0., zrange = None):
     fig.set_size_inches(15.,5.)
     savefig('compareu{:05d}_'.format(nctr[0])+'{:05d}'.format(nctr[1]))
     close()
+    clf()
+    fig = figure()
+    plot(z1, n1, 'k-', label = hname1)
+    plot(z2, n2, 'r:', label = hname2, linewidth = 2)
+    title(r'$t = '+str(round(t1, ndigits))+'$')
+    xlabel(r'$z$') ; ylabel(r'$B_x$')
+    if zrange is not None:
+        xlim(zrange[0], zrange[1])
+    fig.set_size_inches(12.,5.)
+    savefig('comparen{:05d}_'.format(nctr[0])+'{:05d}'.format(nctr[1]))
+    clf()
+    fig, ax = subplots(ncols=2, figsize=(8, 4))
+    ax[0].plot(z1, zcur1, 'k-', label = hname1)
+    ax[0].plot(z2, zcur2, 'r:', label = hname2, linewidth = 2)
+    fig.suptitle(r'$t = '+str(round(t1, ndigits))+'$')
+    ax[0].set_xlabel(r'$z_0$') ; ax[1].set_xlabel(r'$z_0$') ; ax[0].set_ylabel(r'$z$')
+    if zrange is not None:
+        ax[1].set_xlim(zrange[0], zrange[1])
+    else:
+        ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
+    fig.set_size_inches(12.,5.)
+    savefig('comparez{:05d}_'.format(nctr[0])+'{:05d}'.format(nctr[1]))
+   
     
 def compares(hname1, hname2, narr1, narr2):
 
@@ -656,3 +701,49 @@ def energies(hname, narr, zmin = 0.):
         ylim(1e-4, 1.2)
         savefig('eensrat.png')
      
+
+def test_monotonic_split():
+
+    x = arange(1000)*0.01
+    
+    y = (x-1.)*(x-2.)*(x-3.)
+
+    ylist = utile.monotonic_split(y)
+
+    slist = len(ylist)
+
+    print("number of monotonic regions = ", slist)
+    
+    clf()
+    for k in arange(slist):
+        print(x[ylist[k]].min(), '..', x[ylist[k]].max())
+        plot(x[ylist[k]], y[ylist[k]], label = str(k))
+    legend()
+    xlabel(r'$x$') ;  ylabel(r'$y$')
+    show()
+
+def split_exception(x, y):
+
+    ylist = utile.monotonic_split(y)
+    slist = len(ylist)
+
+    print("exception: number of monotonic regions = ", slist)
+
+    xmax = x.min() ; xmin = x.max()
+    ymax = y.min() ; ymin = y.max()
+    
+    clf()
+    for k in arange(slist):
+        print(x[ylist[k]].min(), '..', x[ylist[k]].max())
+        plot(x[ylist[k]], y[ylist[k]], label = str(k))
+        if k < (slist-1):
+            xmax = maximum(xmax, x[ylist[k]].max())
+            xmin = minimum(xmin, x[ylist[k]].min())
+            ymax = maximum(ymax, y[ylist[k]].max())
+            ymin = minimum(ymin, y[ylist[k]].min())
+    xlim(xmin, xmax)  ; ylim(ymin, ymax)
+    legend()
+    xlabel(r'$x$') ;  ylabel(r'$y$')
+    show()
+   
+    

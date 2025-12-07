@@ -18,7 +18,7 @@ from os.path import exists
 from scipy.fft import fft, ifft, fftfreq, fft2, fftshift
 from scipy.signal import savgol_filter
 from scipy.integrate import simpson
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d, make_smoothing_spline
 
 
 # HDF5 io:
@@ -46,13 +46,14 @@ ifsource = False
 ifvdamp = False
 ifsavgol = False
 ifassumemonotonic = False # breaks down if z(z0) is really non-monotonic
-ifinterpback = False # horribly slow and breaks down for no reazon (unfortunate grid shift?)
+ifinterpback = True # 
+ifsmoothfeed = False
 
 ifGOcompare = True
 
 # mesh:
-nz = 8192
-zlen = 60.
+nz = 4096
+zlen = 120.
 z0 = (arange(nz) / double(nz) - 0.5) * zlen # centres of Euler cells
 dz = z0[1] - z0[0]
 print("dz = ", dz)
@@ -62,32 +63,31 @@ z0half_ext = concatenate([[z0half[0]-dz], z0half, [z0half[-1]+dz]]) # Euler cell
 
 # time
 dtCFL = dz * 0.3 # CFL in 1D should be not very small
-dtfac = 0.1
+dtfac = 0.3
 # dtout = 0.01
 ifplot = True
-hdf_alias = 1000
-picture_alias = 1
-dtout = 0.5
+picture_alias = 10
+dtout = 0.1
 tstart = 0.
 
 # injection:
 ExA = 0.0
 EyA = 100.0
 omega0 = 10.0
-tpack = 1. # sqrt(6.)  
+tpack = 1. # sqrt(6.) * 2. #00.
 tmid = tpack * 5. # the passage of the wave through z=0
 tmax = zlen + tmid - tpack
 
 # density floor
-nlim = 1e-3
+nlim = 1e-4
 
 # maximal number of monotonic chunks
 nmonmax = 1e4
 
 # decay parameters
-dtcay = 20.0
+dtcay = 50.0
 dzcay = 2.0
-zbuffer = zlen/10.
+zbuffer = zlen/5.
 
 # z cleaning
 sclip = 0.1
@@ -97,6 +97,9 @@ zeps = 0.1
 Bxbgd = 0.0
 Bybgd = 0.0
 Bzbgd = 0.0
+
+# drift in z direction
+uzdrift = 0.
 
 print(r"wave is resolved by a factor of \lambda / dz = ", 2.*pi / (omega0 * dz))
 print("a = ", EyA/omega0)
@@ -115,9 +118,11 @@ def Bleft(t):
 
 def zclean_int(z, uz, complainflag = False):
 
-    zfun = interp1d(z0, z, kind = 'cubic',  bounds_error = False, fill_value = 'extrapolate')
+    # zspl = make_smoothing_spline(z0, z)
+    
+    zfun = interp1d(z0, z, kind = 'linear',  bounds_error = False, fill_value = 'extrapolate')
 
-    zcorr = z - zfun(z0)
+    zcorr = z - zspl(z0)
 
     wcorr = abs(zcorr) > (sclip*dz)
 
@@ -125,7 +130,7 @@ def zclean_int(z, uz, complainflag = False):
         # uzfun = interp1d(z0, uz, kind = 'cubic',  bounds_error = False, fill_value = (uy0 * 0., uy1))
         # uyfun = interp1d(z0, uy, kind = 'cubic',  bounds_error = False, fill_value = (uy0 * 0., uy1))
         zstd = (z[wcorr]-zfun(z0[wcorr])).std()
-        uzfun = interp1d(z0, uz, kind = 'cubic',  bounds_error = False, fill_value = 'extrapolate')
+        uzfun = interp1d(z0, uz, kind = 'cubic', bounds_error = False, fill_value = 'extrapolate')
         # uzcorr = uzfun(z0[wcorr])
         uz[wcorr] = uzfun(z0[wcorr]) # (uz - uzcorr) * exp(-abs(z[wcorr]-zfun(z0[wcorr]))/dzcay) + uzcorr
         z[wcorr] = zfun(z0[wcorr])
@@ -176,7 +181,10 @@ def interp_back(y0, x0, x):
                 ynorm[k] += ((1.-abs(x[ww]-x0[k])/dzbox)).sum()
 
     return y / ynorm
-    
+
+def smoothfeed(t):
+    return 1. - exp(-t/dtcay)
+
 def dBstep(Ex, Ey):
     dBx = zeros(nz) ;  dBy = zeros(nz) # ; v = ones(nz+1)
 
@@ -238,35 +246,18 @@ def jacoden(z, n0):
 
     # if ifsavgol:
     #        n = savgol_filter(n, 3, 2)
+    '''
     if win.sum() > 10:
         print(win.sum(), "win points")
         print(wout.sum(), "wout points")
         print(zc.min(), zc.max())
+    '''
     if (win.sum()+wout.sum()) < nz:
         print(win.sum()+wout.sum(), " points in total; some missing?")
         ii = input('winwout')
     return  n0[1:-1] / n
 # dz * n0 / maximum(abs(z0[])) # maximum(abs(roll(z, 1)- z), abs(z -roll(z, -1)))
 # sqrt((roll(z, 1)- z)**2 +  (z -roll(z, -1))**2 + (0.1*dz)**2)
-
-def monotonic_split(x):
-
-    n = size(x)
-    
-    xmon = []
-
-    currentlist = [0]
-    
-    for k in arange(n-1, dtype = int):
-        if (x[k] - x[k-1]) * (x[k+1]-x[k]) > 0.:
-            currentlist.append(k+1)
-        else:
-            xmon.append(asarray(currentlist))
-            currentlist = [k+1]
-
-    xmon.append(asarray(currentlist))
-            
-    return xmon
     
     
 def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
@@ -291,12 +282,12 @@ def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
     Bx0 = EyA * Bleft(t)
     By0 = -ExA * Bleft(t)
     Ex1 = Ex[-1]
-    Ey1 = Bx[-1] # Ey[-1]
-    Bx1 = Ey[-1] # Bx[-1]
+    Ey1 = Ey[-1]
+    Bx1 = Bx[-1]
     By1 = By[-1]
-    uz0 = 0. ; uz1 = maximum(uz[-1], 0.)
-    uy0 = 0. ; uy1 = uy[-1]
-    uz0 = (ExA**2 + EyA**2) * Aleft(t)**2/2.
+    uz0 = minimum(uzdrift, uz[0]) ; uz1 = maximum(uz[-1], uzdrift)
+    uy0 = uy[0] ; uy1 = uy[-1]
+    uz0 = uz[0] #  maximum((ExA**2 + EyA**2) * Aleft(t)**2/2. + uzdrift, uz[0]) 
     uy0 = EyA * Aleft(t) # - Bxbgd * dz
 
     # extended arrays:
@@ -322,11 +313,31 @@ def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
         if thetimer is not None:
             thetimer.start_comp("currents")
         if ifinterpback:
-            jy = interp_back(-n*vy, z0half_ext, z)
-            vz_ext = interp_back(vz, z0half_ext, z)
+            #            jyfun = interp1d(z, -n * vy, bounds_error = False, fill_value = (uy0 * 0., uy1), kind='nearest')
+            #            vzfun = interp1d(z, vz, bounds_error = False, fill_value = (uz0 * 0., uz1), kind='nearest')
+            # weights is a 2D array (matrix)
+            z2, z02 = meshgrid(z, z0half_ext)
+            jy2, z02 = meshgrid(-n*vy, z0half_ext)
+            vz2, z02 = meshgrid(vz, z0half_ext)
+            # print(shape(z2), "; first dimension should be ", nz, "= ", size(z), ", second ", nz+2, " = ", size(z0half_ext))
+            weights = maximum(minimum(z2 - z02, z02 - z2), 0.)
+            jy = (jy2 * weights).sum(axis = 1) # contracting over the z axis onto z0
+            vz_ext = (vz2 * weights).sum(axis = 1) 
+
+            '''
+            for k in arange(nz+1):
+                w = (z > z0half_ext[k]) & (z < z0half_ext[k+1])
+                if w.sum() > 0:
+                    weight = minimum(z - z0half_ext[k], z0half_ext[k+1] - z)
+                    jy[k] += -(n0[1:-1]*vy * weight)[w].sum()
+                    vz_ext[k] += vz[w].sum()
+            '''
+            # jy = interp_back(-n*vy, z0half_ext, z)
+            
+            # vz_ext = interp_back(vz, z0half_ext, z)
             jx = jy * 0.
         else:
-            wg = z[1:] < z[:-1] # make this condition harder? 
+            wg = z_ext[1:] < (z_ext[:-1]-dz*0.01) # make this condition harder? 
             if (wg.sum() <= 2) | ifassumemonotonic:
                 # jxfun = interp1d(z, -n * vx, bounds_error = False, fill_value = 0.) !!! just because we do not really have vx
                 jyfun = interp1d(z, -n * vy, bounds_error = False, fill_value = (uy0 * 0., uy1), kind='cubic') # !!! n0 uy =? n vy ??
@@ -337,11 +348,16 @@ def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
                 vz_ext = vzfun(z0half_ext)
             else:
                 # there are non-monotonic regions
-                wmonotonic = monotonic_split(z)
+                wmonotonic = utile.monotonic_split(z) # (z_ext[:-2]+z_ext[2:]+2.*z_ext[1:-1])/4.) #!!!temporary!!!
                 nchunks = len(wmonotonic)
                 nmon = nchunks
                 jx = z0half_ext * 0. ;  jy = z0half_ext * 0. ; vz_ext = z0half_ext * 0. ; vz_norm = z0half_ext * 0.
-                # print(nchunks, " monotonic chunks, sizes: ")
+                if nchunks > 10:
+                    print(nchunks, " monotonic chunks, sizes: ")
+                    for k in arange(nchunks):
+                        print(size(wmonotonic[k]))
+                    plots.split_exception(z0, z)
+                    ii = input('m')
                 for k in arange(nchunks):
                     w = (z0half_ext > z[wmonotonic[k]].min()) * (z0half_ext < z[wmonotonic[k]].max())
                     if w.sum() > 1:
@@ -399,20 +415,23 @@ def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
                         '''
                         # vz_ext[vz_norm > 0.] /= vz_norm[vz_norm > 0.] #!!!temporary
             # smoothing jy:
-            if ifsavgol:
-                jy = savgol_filter(jy, 3,2)
+        if ifsavgol:
+            jy = savgol_filter(jy, 3,2)
             # if vz_norm.min() <= 0.:
             #    print("vznorm changes sign, vznorm = ", vz_norm[vz_norm > 0.].min(), '..', vz_norm.max())
             #    print(nweigh.min(), '..', nweigh.max())
             #    ii = input('vz')
         if thetimer is not None:
             thetimer.stop_comp("currents")
-                    
+
+    if ifsmoothfeed:
+        jy *= smoothfeed(t)
+            
     # mapping fields from Eulerian grid to Lagransian
     if thetimer is not None:
         thetimer.start_comp("Maxwell")
     # Exfun = interp1d(z0half, Ex, bounds_error = False, fill_value = (Ex0, Ex1)) !!! no fields or motions in x direction
-    Eyfun = interp1d(z0half, Ey, bounds_error = False, fill_value = (Ey0, Ey1), kind='cubic')
+    Eyfun = interp1d(z0half, Ey + Bxbgd * uzdrift, bounds_error = False, fill_value = (Ey0 + Bxbgd * uzdrift, Ey1 + Bxbgd * uzdrift), kind='cubic')
     Bxfun = interp1d(z0, Bx + Bxbgd, bounds_error = False, fill_value = (Bx0 + Bxbgd, Bx1 + Bxbgd), kind='cubic')
     # Byfun = interp1d(z0, By + Bybgd, bounds_error = False, fill_value = (By0 + Bybgd, By1 + Bybgd)) !!! assuming no B field in y direction
     
@@ -455,7 +474,7 @@ def sewerrun(ddir = None):
 
     # 4-velocity
     ux = 0.*z  ;    uy = EyA * Aleft(-zlen/2.-dz-z0half)
-    uz = uy**2/2.
+    uz = uy**2/2. + uzdrift
     n0 = ones(nz+2) * 1.0 * utile.bufferfun((z0_ext - (z0_ext.min()+zbuffer))/zbuffer) # density ; let us keep it unity, meaning time is in omega_p units. Lengths are internally in c/f = 2pi c / omega units, that allows a simpler expression for d/dz 
     n = copy(n0)
     
@@ -488,7 +507,7 @@ def sewerrun(ddir = None):
         fout_chunks.write('# t -- Nchunks1 -- Nchunks2 -- Nchunks3 -- Nchunks4 \n')
     
     thetimer.start("io")
-    plots.slew(0., z0, z, Ey, Bx, uy, uz, n0[1:-1], -1)
+    plots.slew(0., z0, z, Ey, Bx, uy, uz, n0[1:-1], -1, EyA=EyA, omega0 = omega0, tpack = tpack, tmid = tmid)
     thetimer.stop("io")
     #     ii = input('p')
     nmon = 0
@@ -552,18 +571,26 @@ def sewerrun(ddir = None):
         # z cleaning
         thetimer.start_comp("cleaning")
         if ifzclean:
-            znew, uznew = zclean_int(z, uz, complainflag = (t > (tstore + dtout)))
+            znew, uznew = zclean(z, uz, complainflag = (t > (tstore + dtout)))
             # znew, uznew = zclean(z, uz, complainflag = (t > (tstore + dtout)) & (ctr%picture_alias==0))
             z = znew  # ; uz = uznew
         
         # velocity damping
         if ifvdamp:
-            dampfactor = dt/dtcay  * maximum( t / tmid - 1., 0.) * maximum(1.  - (z0 - z0.min())  / zbuffer, 0.)
+            dampfactor = dt/dtcay  * maximum( tmid*2. + zbuffer - t, 0.)/tmid * maximum(-z0, 0.)
+            #if dampfactor.max() > 0.:
+            #    print("dampfactor = ", dampfactor)
+            #    print("t = ", t)
+            #    ii = input("d")
             # maximum(exp(-maximum((2.*tpack-t), 0.)/dzcay - (z0-z0.min()-tpack - zbuffer)/dzcay )-0.01, 0.)
             # z = z + (z0-z) * (1.-dampfactor)
             wdamp = dampfactor > 0.
             if wdamp.sum() > 0:
-                uz[wdamp] *= exp(-dampfactor[wdamp])
+                uz[wdamp] += (savgol_filter(uz[wdamp], 4, 2, mode='nearest')-uz[wdamp]) * (1.-exp(-dampfactor[wdamp]))
+                zav = savgol_filter(z, 4, 2, mode='interp')
+                w1 = (abs(z-zav)  > sclip * dz) * wdamp
+                if w1.sum() > 0:
+                    z[w1] += (zav - z)[w1] * (1.-exp(-dampfactor[w1])) 
             # z = savgol_filter(z, 4, 2, mode='nearest')
             # uy *= dampfactor
         thetimer.stop_comp("cleaning")
@@ -616,7 +643,7 @@ def sewerrun(ddir = None):
             
             if ctr%picture_alias==0:
                 # plots.onthefly(z, (z+zlen/2.+t)%zlen-zlen/2., ax0, ay0, az0, bx0 + Bxbgd, by0 + Bybgd, ax, ay, az, bx + Bxbgd, by + Bybgd, ux, uy, uz, n/gamma, ctr, t)
-                plots.slew(t, z0, z, Ey, Bx+Bxbgd, uy, uz, n, ctr, tmid = tmid, ddir = ddir)
+                plots.slew(t, z0, z, Ey, Bx+Bxbgd, uy, uz, n, ctr, ddir = ddir, EyA=EyA, omega0 = omega0, tpack = tpack, tmid = tmid)
                 
             tlist.append(tstore)
             bxlist.append(Bx_prev.real + ((tstore-(t-dt))/dt) * (Bx-Bx_prev).real + Bxbgd)
