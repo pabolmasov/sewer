@@ -48,6 +48,7 @@ def phiRL(uside, v):
     # slope limiter
     # uside has the size of nz+1
     # so does v
+    # it's only the sign of v that matters
 
     if (size(v) != size(uside)):
         print(size(v), size(uside))
@@ -76,3 +77,24 @@ def phiRL(uside, v):
             u[wright] = (uside[:-1])[wright]
         
     return u    
+
+
+def monotonic_split(x):
+
+    n = size(x)
+    
+    xmon = []
+
+    currentlist = [0]
+    
+    for k in arange(n-2, dtype = int)+1:
+        if (x[k] - x[k-1]) * (x[k+1]-x[k]) > 0.:
+            currentlist.append(k+1)
+        else:
+            xmon.append(asarray(currentlist))
+            if (x[k] - x[k-1]) * (x[k+1]-x[k]) < 0.:
+                currentlist = [k+1]
+
+    xmon.append(asarray(currentlist))
+            
+    return xmon

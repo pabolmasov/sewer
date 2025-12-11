@@ -4,6 +4,9 @@ from matplotlib.pyplot import *
 # HDF5 io:
 import hio
 
+# utilities:
+import utile
+
 from numpy import *
 from scipy.integrate import simpson
 
@@ -12,15 +15,15 @@ cmap = 'viridis'
 ndigits = 2 # round-off digits TODO: make this automatic
 
 # store all this in the globals:
-EyA = 400.0
-omega0 = 40.0
+EyA = 100.0
+omega0 = 10.0
 
-tpack = sqrt(6.)
+tpack =  sqrt(6.) * 2.
 tmid = tpack * 10.
 tmax = 3. * tmid
 
-def Aleft(t):
-    return -sin(omega0 * t) * exp(-(t/tpack)**2/2.) / omega0
+def Aleft(t, omega0 = omega0, tpack = tpack):
+    return -sin(omega0 * t) * exp(-(t/tpack)**2/2.)
 
 def show_nukeplane(omega0 = 1.0, bgdfield = 0., iflog = True, ddir = './'):
 
@@ -30,8 +33,7 @@ def show_nukeplane(omega0 = 1.0, bgdfield = 0., iflog = True, ddir = './'):
     bxlist_FF =  datalist[0][:,:]
     # print(type(bxlist_FF[0,0]))
     # print(type(omega[0]))
-    # print(type(k[0]))
-    
+    # print(type(k[0]))    
     babs = sqrt(bxlist_FF.real**2 + bxlist_FF.imag**2)
     # fftshift(nu)
     # fftshift(k)
@@ -184,25 +186,33 @@ def maps(z, tlist, bxlist, uylist, uzlist, nlist, zalias = 1, talias = 1, zcurre
     
     close()
 
-def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid, ddir = './'):
+def slew(t, z0, z, ay, bx, uy, uz, n, ctr, ddir = './', EyA = EyA, omega0 = omega0, tpack = tpack, tmid = tmid):
 
     zlen = z0.max() - z0.min()
     zcenter = -zlen/2. + t-tmid # used for the simulations without a source
     # zcenter = (zcenter - z0.min()) % zlen + z0.min()
     zcenter_show = minimum(maximum(zcenter, z0.min()), z0.max())
-    
+
+    wzcur = (z0 > (zcenter_show - 2.*tpack))*( z< zcenter_show + 2. * tpack)
+
+    if wzcur.sum() > 0:
+        zcur1 = z[(z0 > (zcenter_show - 2.*tpack))*( z< zcenter_show + 2. * tpack)].min()
+        zcur2 = z[(z0 > (zcenter_show - 2.*tpack))*( z< zcenter_show + 2. * tpack)].max()
+    else:
+        zcur1 = zcenter_show - 2.*tpack
+        zcur2 = zcenter_show + 2.*tpack
     clf()
     fig, ax = subplots(ncols=2, figsize=(8, 4))
     ax[0].plot(z0, z0, 'r:')
     ax[0].plot(z0, z, 'k-')
-    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show + 2. * tpack], [zcenter_show - 2.*tpack, zcenter_show - 2. * tpack], 'g:')
-    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show + 2. * tpack], [zcenter_show + 2.*tpack, zcenter_show + 2. * tpack], 'g:')
-    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show - 2. * tpack], [zcenter_show - 2.*tpack, zcenter_show + 2. * tpack], 'g:')
-    ax[0].plot([zcenter_show + 2.*tpack, zcenter_show + 2. * tpack], [zcenter_show- 2.*tpack, zcenter_show + 2. * tpack], 'g:')
+    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show + 2. * tpack], [zcur1, zcur1], 'g:')
+    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show + 2. * tpack], [zcur2, zcur2], 'g:')
+    ax[0].plot([zcenter_show - 2.*tpack, zcenter_show - 2. * tpack], [zcur1, zcur2], 'g:')
+    ax[0].plot([zcenter_show + 2.*tpack, zcenter_show + 2. * tpack], [zcur1, zcur2], 'g:')
     ax[1].plot(z0, z0, 'r:')
     ax[1].plot(z0, z, 'k-')
     ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
-    ax[1].set_ylim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)    
+    ax[1].set_ylim(zcur1, zcur2)    
     ax[0].set_xlabel(r'$z_0$') ; ax[0].set_ylabel(r'$z$')
     ax[1].set_xlabel(r'$z_0$') # ; ax[0].set_ylabel(r'$z$')
     fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
@@ -239,24 +249,48 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid, ddir = './'):
     savefig(ddir + '/slewuyz{:05d}.png'.format(ctr))
     
     clf()
-    fig, ax = subplots(ncols=2, figsize=(8, 4))
-    ax[0].plot(z0, -Aleft(z0-zcenter)*EyA, 'b-')
+    fig, ax = subplots(ncols=3, figsize=(12, 4))
+    ax[0].plot(z0, -Aleft(z0-zcenter, omega0 = omega0, tpack = tpack)*EyA/omega0, 'b-')
     ax[0].plot(z, uy, 'k.')
-    ax[1].plot(z0, -Aleft(z0-zcenter)*EyA, 'b-')
+    ax[1].plot(z0, -Aleft(z0-zcenter, omega0 = omega0, tpack = tpack)*EyA/omega0, 'b-')
     ax[1].plot(z, uy, 'k.')
+    ax[2].plot(z0, -Aleft(z0-zcenter, omega0 = omega0, tpack = tpack)*EyA/omega0, 'b-')
+    ax[2].plot(z, uy, 'k.')
     ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
-    #    ax[1].set_xlabel(r'$z$') 
+    ax[2].set_xlim(zcenter_show - 2.*2.*pi/omega0, zcenter_show + 2. * 2.*pi/omega0)
     ax[0].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$u^{y}$')
     ax[1].set_xlabel(r'$z$') # ; ax[0].set_ylabel(r'$z$')
-
-    # ax[0].set_ylabel(r'$u^y$')  ;   ax[1].set_ylabel(r'$u^y$')
+    ax[2].set_xlabel(r'$z$') # ; ax[0].set_ylabel(r'$z$')
     fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
     savefig(ddir + '/slewuGO{:05d}.png'.format(ctr))
+    clf()
+    fig, ax = subplots(ncols=3, figsize=(12, 4))
+    ax[0].plot(z0, (Aleft(z0-zcenter, omega0 = omega0, tpack = tpack)*EyA/omega0)**2/2., 'b-')
+    ax[0].plot(z, uz, 'k.')
+    ax[1].plot(z0, (Aleft(z0-zcenter, omega0 = omega0, tpack = tpack)*EyA/omega0)**2/2., 'b-')
+    ax[1].plot(z, uz, 'k.')
+    ax[2].plot(z0, (Aleft(z0-zcenter, omega0 = omega0, tpack = tpack)*EyA/omega0)**2/2., 'b-')
+    ax[2].plot(z, uz, 'k.')
+    ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
+    ax[2].set_xlim(zcenter_show - 2.*2.*pi/omega0, zcenter_show + 2. * 2.*pi/omega0)
+    ax[0].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$u^{z}$')
+    ax[1].set_xlabel(r'$z$') # ; ax[0].set_ylabel(r'$z$')
+    ax[2].set_xlabel(r'$z$') # ; ax[0].set_ylabel(r'$z$')
+    fig.suptitle(r'$\omega_{\rm p} t = '+str(round(t, ndigits))+'$')
+    savefig(ddir + '/slewvGO{:05d}.png'.format(ctr))
 
     clf()
-    fig = figure()
+    # fig = figure()
+    fig, ax = subplots(ncols=2, figsize=(10, 4), width_ratios = (2,1))
     # plot(zplot, 1.+(Aleft(t-zplot+zplot.min())*EyA)**2/2., 'r:')
-    plot(z, n, '-k')
+    ax[0].plot(z, 1.+uz, 'b-', label = r'$1+u^z$')
+    ax[0].plot(z, n, '.k', label = r'$\gamma n$', mfc = 'none')
+    ax[0].legend()
+    ax[1].plot(z, 1.+uz, 'b-', label = r'$1+u^z$')
+    ax[1].plot(z, n, '.k', label = r'$\gamma n$', mfc = 'none')
+    ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$n$, $1+u^z$')
+    ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
+    ax[1].set_ylim(n[(z > zcur1)&(z < zcur2)].min(), n[(z>zcur1)&(z<zcur2)].max())
     # cb = colorbar()
     # cb.set_label(r'$z$')
     xlabel(r'$z$')   ;   ylabel(r'$n_{\rm p}$') 
@@ -266,6 +300,8 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr, tmid = tmid, ddir = './'):
     fig.set_size_inches(12.,6.)
     savefig(ddir + '/slewn{:05d}.png'.format(ctr))
 
+    # close('all')
+    
 def slew_eplot(tlist, mlist, emelist, paelist, omega0, ddir = './'):
     
     clf()
@@ -448,7 +484,7 @@ def uGOcompare(hname, narr):
         fig = figure()
         plot(z1, uz1, 'ko', label = hname+': $u^z$', mfc = 'none')
         # plot(z1, (Aleft(t1-z1+z1.min()-dz/2.)*EyA)**2/2., 'b-', label = r'$A^2/2$')
-        plot(z1, (Aleft((z1-z0-t1+tmid)%zlen)*EyA)**2/2., 'b-', label = r'$A^2/2$')
+        plot(z1, (Aleft((z1-z0-t1+tmid)%zlen)*EyA/omega0)**2/2., 'b-', label = r'$A^2/2$')
         legend()
         ylim(-(EyA/omega0)**2/10., (EyA/omega0)**2/2.)
         title(r'$\omega_{\rm p} t = '+str(round(t1, ndigits))+'$')
@@ -463,16 +499,20 @@ def Hcompare(hname1, hname2, nctr, zoomin = 0., zrange = None):
     if size(nctr) <= 1:
         nctr = (nctr, nctr)
     
-    t1, z1, zhalf1, E1, B1, u1, n1 = hio.fewout_readdump(hname1, nctr[0])
+    t1, z1, zhalf1, E1, B1, u1, n1, zcur1 = hio.fewout_readdump(hname1, nctr[0], ifzcur = True)
     Ex1, Ey1 = E1
     Bx1, By1 = B1
     ux1, uy1, uz1 = u1
 
-    t2, z2, zhalf2, E2, B2, u2, n2 = hio.fewout_readdump(hname2, nctr[1])
+    t2, z2, zhalf2, E2, B2, u2, n2, zcur2 = hio.fewout_readdump(hname2, nctr[1], ifzcur = True)
     Ex2, Ey2 = E2
     Bx2, By2 = B2
     ux2, uy2, uz2 = u2
 
+    zlen = maximum(z1, z2).max() - minimum(z1, z2).min()
+    zcenter = -zlen/2. + t1-tmid # used for the simulations without a source
+    # zcenter = (zcenter - z0.min()) % zlen + z0.min()
+    zcenter_show = minimum(maximum(zcenter, minimum(z1, z2).min()), maximum(z1, z2).max())
     # print("t = ", t1, " = ", t2)
     # print(abs(ux1).max(), abs(ux2).max())
     
@@ -512,6 +552,29 @@ def Hcompare(hname1, hname2, nctr, zoomin = 0., zrange = None):
     fig.set_size_inches(15.,5.)
     savefig('compareu{:05d}_'.format(nctr[0])+'{:05d}'.format(nctr[1]))
     close()
+    clf()
+    fig = figure()
+    plot(z1, n1, 'k-', label = hname1)
+    plot(z2, n2, 'r:', label = hname2, linewidth = 2)
+    title(r'$t = '+str(round(t1, ndigits))+'$')
+    xlabel(r'$z$') ; ylabel(r'$B_x$')
+    if zrange is not None:
+        xlim(zrange[0], zrange[1])
+    fig.set_size_inches(12.,5.)
+    savefig('comparen{:05d}_'.format(nctr[0])+'{:05d}'.format(nctr[1]))
+    clf()
+    fig, ax = subplots(ncols=2, figsize=(8, 4))
+    ax[0].plot(z1, zcur1, 'k-', label = hname1)
+    ax[0].plot(z2, zcur2, 'r:', label = hname2, linewidth = 2)
+    fig.suptitle(r'$t = '+str(round(t1, ndigits))+'$')
+    ax[0].set_xlabel(r'$z_0$') ; ax[1].set_xlabel(r'$z_0$') ; ax[0].set_ylabel(r'$z$')
+    if zrange is not None:
+        ax[1].set_xlim(zrange[0], zrange[1])
+    else:
+        ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
+    fig.set_size_inches(12.,5.)
+    savefig('comparez{:05d}_'.format(nctr[0])+'{:05d}'.format(nctr[1]))
+   
     
 def compares(hname1, hname2, narr1, narr2):
 
@@ -591,12 +654,13 @@ def energies(hname, narr, zmin = 0.):
         Bx, By = B
         ux, uy, uz = u
 
-        EEM = simpson((Ex**2 + Ey**2)[z0>zmin], x = z0[z0>zmin]) + simpson((Bx**2 + By**2)[z0>zmin], x = z0[z0>zmin])/2.
-        EEM0 = simpson(Ex**2 + Ey**2, x = z0) + simpson(Bx**2 + By**2, x = z0)/2.
+        EEM = simpson((Ex**2 + Ey**2)[z0>zmin], x = z0[z0>zmin])/2. + simpson((Bx**2 + By**2)[z0>zmin], x = z0[z0>zmin])/2.
+        EEM0 = simpson(Ex**2 + Ey**2, x = z0)/2. + simpson(Bx**2 + By**2, x = z0)/2.
+
         gamma = sqrt(1. + ux**2+uy**2+uz**2)
         
-        EPA0 = 2. * simpson((n * gamma * (gamma-1.)), x = z)
-        EPA = 2. * simpson((n * gamma * (gamma-1.))[z0>zmin], x = z[z0>zmin])
+        EPA0 = simpson((n * gamma * (gamma-1.)), x = z)
+        EPA = simpson((n * gamma * (gamma-1.))[z0>zmin], x = z[z0>zmin])
 
         print(EEM0, EEM)
         print(EPA0, EPA)
@@ -623,12 +687,12 @@ def energies(hname, narr, zmin = 0.):
         
         xlabel(r'$t$') ;     ylabel(r'$E$')
         yscale('log') # ; xscale('log')
-        ylim(eem.max()*1e-4, eem.max())
+        ylim(eem.max()*1e-4, eem0.max()*1.5)
         savefig('eens.png')
 
         clf()
         fig = figure()
-        plot(t, t*0. + 2./omega0**2 * (1.+(EyA/omega0)**2/8.), 'g--', r'$\omega^{-2}$')
+        plot(t, t*0. + 1./omega0**2 * (1.+(EyA/omega0)**2/8.), 'g--', r'$\omega^{-2}$')
         plot(t, epa0/eem0, 'r:', label= 'particles/EM, total')
         plot(t, epa/eem, 'k-', label= 'particles/EM, z > '+str(zmin))
         legend()
@@ -637,4 +701,80 @@ def energies(hname, narr, zmin = 0.):
         yscale('log') # ; xscale('log')
         ylim(1e-4, 1.2)
         savefig('eensrat.png')
-     
+
+def energy_compare(dir1, dir2):
+    
+    lines1 = loadtxt(dir1+'/slew_energy.dat')
+    t1 = lines1[:,0] ;  m1 = lines1[:, 1] ; eem1 = lines1[:, 2] ; epa1 = lines1[:, 3]
+    lines2 = loadtxt(dir2+'/slew_energy.dat')
+    t2 = lines2[:,0] ;  m2 = lines2[:, 1] ; eem2 = lines2[:, 2] ; epa2 = lines2[:, 3]
+
+    show()
+    close('all')
+    clf()
+    fig, ax = subplots(ncols = 1, nrows=2, figsize=(4, 8))
+    ax[0].plot(t1, eem1, 'k--', label = dir1+': EM')
+    ax[0].plot(t2, eem2, 'r--', label = dir2+': EM')
+    #    ax[0].plot(t1, epa1, 'k:', label = dir1+': particles')
+    #    ax[0].plot(t2, epa2, 'r:', label = dir2+': particles')
+    ax[0].plot(t1, eem1+epa1, 'k-', label = dir1+': total')
+    ax[0].plot(t2, eem2+epa2, 'r-', label = dir2+': total')
+    emax = maximum((eem1+epa1).max(), (eem2+epa2).max())
+    ax[0].set_ylim(emax - maximum(epa1.max(), epa2.max())*3.0, emax+maximum(epa1.max(),epa2.max())*0.5)
+    # yscale('log')
+    ax[1].plot(t1, epa1, 'k:', label = dir1+': particles')
+    ax[1].plot(t2, epa2, 'r:', label = dir2+': particles')    
+    ax[0].set_xlabel(r'$t$') ;     ax[0].set_ylabel(r'$E$')
+    ax[1].set_xlabel(r'$t$')  ;     ax[1].set_ylabel(r'$E$')
+    ax[0].legend()
+    ax[0].set_title('EM energy')
+    ax[1].set_title('particle energy')
+    fig.tight_layout()
+    fig.savefig('energy_compare.png')
+    show()
+
+def test_monotonic_split():
+
+    x = arange(1000)*0.01
+    
+    y = (x-1.)*(x-2.)*(x-3.)
+
+    ylist = utile.monotonic_split(y)
+
+    slist = len(ylist)
+
+    print("number of monotonic regions = ", slist)
+    
+    clf()
+    for k in arange(slist):
+        print(x[ylist[k]].min(), '..', x[ylist[k]].max())
+        plot(x[ylist[k]], y[ylist[k]], label = str(k))
+    legend()
+    xlabel(r'$x$') ;  ylabel(r'$y$')
+    show()
+
+def split_exception(x, y):
+
+    ylist = utile.monotonic_split(y)
+    slist = len(ylist)
+
+    print("exception: number of monotonic regions = ", slist)
+
+    xmax = x.min() ; xmin = x.max()
+    ymax = y.min() ; ymin = y.max()
+    
+    clf()
+    for k in arange(slist):
+        print(x[ylist[k]].min(), '..', x[ylist[k]].max())
+        plot(x[ylist[k]], y[ylist[k]], label = str(k))
+        if k < (slist-1):
+            xmax = maximum(xmax, x[ylist[k]].max())
+            xmin = minimum(xmin, x[ylist[k]].min())
+            ymax = maximum(ymax, y[ylist[k]].max())
+            ymin = minimum(ymin, y[ylist[k]].min())
+    xlim(xmin, xmax)  ; ylim(ymin, ymax)
+    legend()
+    xlabel(r'$x$') ;  ylabel(r'$y$')
+    show()
+   
+    
