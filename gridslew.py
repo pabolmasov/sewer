@@ -46,10 +46,15 @@ ifsource = False
 ifvdamp = False
 ifsavgol = False
 ifassumemonotonic = False # breaks down if z(z0) is really non-monotonic
-ifinterpback = True # 
+ifdirectsum = True # calculating the currents as a direct sum 
 ifsmoothfeed = False
 
 ifGOcompare = True
+
+ifthread = False # does not work yet (
+
+if ifthread:
+    import threading
 
 # mesh:
 nz = 4096
@@ -61,9 +66,16 @@ z0half = z0 - dz/2. # (z[1:]+z[:-1])/2. # faces of Euler cells
 z0_ext = concatenate([[z0[0]-dz], z0, [z0[-1]+dz]]) # Euler cells including the ghost zones
 z0half_ext = concatenate([[z0half[0]-dz], z0half, [z0half[-1]+dz]]) # Euler cells including the ghost zones
 
+zindices = arange(nz)
+
+if ifthread:
+    nthreads = 2
+    zind = arange(nthreads+1) * (nz // nthreads)
+    zind[0] = 0 ; zind[-1] = nz+2
+
 # time
-dtCFL = dz * 0.3 # CFL in 1D should be not very small
-dtfac = 0.3
+dtCFL = dz * 0.1 # CFL in 1D should be not very small
+dtfac = 0.1
 # dtout = 0.01
 ifplot = True
 picture_alias = 10
@@ -72,7 +84,7 @@ tstart = 0.
 
 # injection:
 ExA = 0.0
-EyA = 100.0
+EyA = 30.0
 omega0 = 10.0
 tpack = 1. # sqrt(6.) * 2. #00.
 tmid = tpack * 5. # the passage of the wave through z=0
@@ -115,6 +127,10 @@ def Eleft(t):
 def Bleft(t):
     return Eleft(t - dz/2.)
 # sin(omega0 * (t-tmid+dz/2.)) * exp(-((t+dz/2.-tmid)/tpack)**2/2.)
+
+def convolve_thread(inar, outar, index1, index2):
+    
+    outar[index1:index2] = (inar[index1:index2, :]).sum(axis = 1)
 
 def zclean_int(z, uz, complainflag = False):
 
@@ -281,6 +297,10 @@ def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
     Ey0 = EyA * Eleft(t)
     Bx0 = EyA * Bleft(t)
     By0 = -ExA * Bleft(t)
+    Ex0E = ExA * Eleft(t - (z[0]-z0[0]))
+    Ey0E = EyA * Eleft(t - (z[0]-z0[0]))
+    Bx0E = EyA * Bleft(t - (z[0]-z0[0]))
+    By0E = -ExA * Bleft(t - (z[0]-z0[0]))
     Ex1 = Ex[-1]
     Ey1 = Ey[-1]
     Bx1 = Bx[-1]
@@ -312,18 +332,57 @@ def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
         # mapping currents from Lagrangian to Eulerian
         if thetimer is not None:
             thetimer.start_comp("currents")
-        if ifinterpback:
+        if ifdirectsum:
             #            jyfun = interp1d(z, -n * vy, bounds_error = False, fill_value = (uy0 * 0., uy1), kind='nearest')
             #            vzfun = interp1d(z, vz, bounds_error = False, fill_value = (uz0 * 0., uz1), kind='nearest')
             # weights is a 2D array (matrix)
-            z2, z02 = meshgrid(z, z0half_ext)
-            jy2, z02 = meshgrid(-n*vy, z0half_ext)
-            vz2, z02 = meshgrid(vz, z0half_ext)
-            # print(shape(z2), "; first dimension should be ", nz, "= ", size(z), ", second ", nz+2, " = ", size(z0half_ext))
-            weights = maximum(minimum(z2 - z02, z02 - z2), 0.)
-            jy = (jy2 * weights).sum(axis = 1) # contracting over the z axis onto z0
-            vz_ext = (vz2 * weights).sum(axis = 1) 
 
+            # z2, z02 = meshgrid(z, z0half_ext)
+            # jy2, z02 = meshgrid(-n0[1:-1]*vy, z0half_ext)
+            # vz2, z02 = meshgrid(vz, z0half_ext)
+            # print(shape(z2), "; first dimension should be ", nz, "= ", size(z), ", second ", nz+2, " = ", size(z0half_ext))
+            # weights = maximum(minimum(z2 - z02, z02 - z2)/dz+1., 0.)
+            # weights = ma.masked_array(weights, weights<=0.)
+                 
+            if ifthread:
+                jysum = [] ; vzsum = []
+                jy = zeros(nz+2) ; vz_ext = zeros(nz+2)
+                for k in arange(nthreads):
+                    #print(shape(vz), shape(z), shape(n0))
+                    #ii = input("shapes")
+                    # print(zind[k], zind[k+1])
+                    # ii = input("shapes")
+                    jysum.append(threading.Thread(target = convolve_thread, args = (jy2 * weights, jy, zind[k], zind[k+1])))
+                    vzsum.append(threading.Thread(target = convolve_thread, args = (vz2 * weights,  vz_ext, zind[k], zind[k+1])))
+                    jysum[-1].start() ; vzsum[-1].start()
+            else:
+                # jy = (jy2 * weights).sum(axis = 1)
+                # vz_ext = (vz2 * weights).sum(axis = 1)
+                
+                jy = zeros(nz+2) ; vz_ext = zeros(nz+2)
+
+                inindex = int(floor((z[0]/zlen+0.5)*nz))
+                vindex = 0 # assuming that to the right of this point, there is no shift, z=z0
+                wv = (abs(uz)>1e-10)
+                if wv.sum() > 0:
+                    vindex = (zindices[wv]).max()
+                
+                if inindex < 0:
+                    print("z init index = ", inindex)
+                    print("z end index = ", vindex)
+                    ii = input("indices")
+
+                if vindex > inindex:
+                    for k in arange(vindex-inindex+1)+inindex:
+                        weight = minimum(z - z0half_ext[k], z0half_ext[k] - z)/dz+1.
+                        # print(weight[weight>0.])
+                        jy[k] = -( (n0[1:-1]*vy)[weight > 0.] * weight[weight>0.] ).sum() # contracting over the z axis onto z0
+                        vz_ext[k] = (vz[weight > 0.] * weight[weight>0.]).sum()
+                
+                # ii = input("w")
+            if ifthread:
+                for k in arange(nthreads):
+                    jysum[k].join() ; vzsum[k].join()
             '''
             for k in arange(nz+1):
                 w = (z > z0half_ext[k]) & (z < z0half_ext[k+1])
@@ -430,20 +489,26 @@ def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
     # mapping fields from Eulerian grid to Lagransian
     if thetimer is not None:
         thetimer.start_comp("Maxwell")
-    # Exfun = interp1d(z0half, Ex, bounds_error = False, fill_value = (Ex0, Ex1)) !!! no fields or motions in x direction
-    Eyfun = interp1d(z0half, Ey + Bxbgd * uzdrift, bounds_error = False, fill_value = (Ey0 + Bxbgd * uzdrift, Ey1 + Bxbgd * uzdrift), kind='cubic')
-    Bxfun = interp1d(z0, Bx + Bxbgd, bounds_error = False, fill_value = (Bx0 + Bxbgd, Bx1 + Bxbgd), kind='cubic')
-    # Byfun = interp1d(z0, By + Bybgd, bounds_error = False, fill_value = (By0 + Bybgd, By1 + Bybgd)) !!! assuming no B field in y direction
     
     # Maxwell equations:
     dB = dBstep(Ex_ext, Ey_ext)
     dE = dEstep(Bx_ext, By_ext, jx, jy, vz_ext)
     if thetimer is not None:
         thetimer.stop_comp("Maxwell")
+        thetimer.start_comp("Euler")
+    # Exfun = interp1d(z0half, Ex, bounds_error = False, fill_value = (Ex0, Ex1)) !!! no fields or motions in x direction
+    # Eyfun = interp1d(z0half[z0half > z[0]], Ey[z0half > z[0]] + Bxbgd * uzdrift, bounds_error = False, fill_value = (Ey0E + Bxbgd * uzdrift, Ey1 + Bxbgd * uzdrift), kind='cubic')
+    # Bxfun = interp1d(z0[z0 > z[0]], Bx[z0 > z[0]] + Bxbgd, bounds_error = False, fill_value = (Bx0E + Bxbgd, Bx1 + Bxbgd), kind='cubic')
+    Eyfun = interp1d(z0half, Ey + Bxbgd * uzdrift, bounds_error = False, fill_value = (Ey0E + Bxbgd * uzdrift, Ey1 + Bxbgd * uzdrift), kind='cubic')
+    Bxfun = interp1d(z0, Bx + Bxbgd, bounds_error = False, fill_value = (Bx0E + Bxbgd, Bx1 + Bxbgd), kind='cubic')
+    # Byfun = interp1d(z0, By + Bybgd, bounds_error = False, fill_value = (By0 + Bybgd, By1 + Bybgd)) !!! assuming no B field in y direction
 
     dux =  vy * Bzbgd # - vz * Byfun(z) # !!! Ex and BY excluded
     duy = Eyfun(z) + vz * Bxfun(z) - vx * Bzbgd
     duz = -vy * Bxfun(z)  # vx * Byfun(z) - vy * Bxfun(z)     !!! By excluded
+
+    if thetimer is not None:
+        thetimer.stop_comp("Euler")
     
     dzz = vz 
     
@@ -458,7 +523,7 @@ def sewerrun(ddir = None):
         ddir = "."
     
     thetimer = Timer(["total", "step", "io"],
-                     ["BC", "currents", "Maxwell", "RKstep", "cleaning"])
+                     ["BC", "currents", "Maxwell", "Euler", "RKstep", "cleaning"])
     if thetimer is not None:
         thetimer.start("total")
         # thetimer.start("io")
@@ -626,8 +691,8 @@ def sewerrun(ddir = None):
                 fout.write(str(t) + ' ' + str(z[k]) + ' ' + str(Bx[k])+'\n')
             fout.flush()
 
-            mtot = simpson((n0[1:-1]), x = z)
-            epatot = simpson((n0[1:-1] * (1.-1./gamma)), x = z0)
+            mtot = simpson(n, x = z)
+            epatot = simpson((n0[1:-1] * (gamma-1.)), x = z0)
             emetot = (simpson(Bx**2+By**2, x = z0) + simpson(Ex**2+Ey**2, x = z0half))/2.
 
             fout_energy.write(str(t) + ' ' + str(mtot) + ' ' + str(emetot) + ' ' + str(epatot) + '\n')
@@ -723,6 +788,13 @@ def main():
         if not os.path.exists(outdir):
             os.makedirs(outdir)
         sewerrun(ddir = outdir)
+        # making movies:        
+        os.system('ffmpeg -f image2 -r 25 -pattern_type glob -i "'+outdir+'/slewuyz*.png" -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2"  -pix_fmt yuv420p -b 8192k '+outdir+'/slewuyz.mp4')
+        os.system('ffmpeg -f image2 -r 25 -pattern_type glob -i "'+outdir+'/slewzz*.png" -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2"  -pix_fmt yuv420p -b 8192k '+outdir+'/slewzz.mp4')
+        os.system('ffmpeg -f image2 -r 25 -pattern_type glob -i "'+outdir+'/slewn*.png" -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2"  -pix_fmt yuv420p -b 8192k '+outdir+'/slewn.mp4')
+        os.system('ffmpeg -f image2 -r 25 -pattern_type glob -i "'+outdir+'/slewuGO*.png" -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2"  -pix_fmt yuv420p -b 8192k '+outdir+'/slewuGO.mp4')
+        os.system('ffmpeg -f image2 -r 25 -pattern_type glob -i "'+outdir+'/slewvGO*.png" -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2"  -pix_fmt yuv420p -b 8192k '+outdir+'/slewvGO.mp4')
+        os.system('ffmpeg -f image2 -r 25 -pattern_type glob -i "'+outdir+'/slewEB*.png" -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2"  -pix_fmt yuv420p -b 8192k '+outdir+'/slewEB.mp4')
     else:
         sewerrun()
 

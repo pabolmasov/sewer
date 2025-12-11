@@ -290,6 +290,7 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr, ddir = './', EyA = EyA, omega0 = omeg
     ax[1].plot(z, n, '.k', label = r'$\gamma n$', mfc = 'none')
     ax[0].set_xlabel(r'$z$') ; ax[1].set_xlabel(r'$z$') ; ax[0].set_ylabel(r'$n$, $1+u^z$')
     ax[1].set_xlim(zcenter_show - 2.*tpack, zcenter_show + 2. * tpack)
+    ax[1].set_ylim(n[(z > zcur1)&(z < zcur2)].min(), n[(z>zcur1)&(z<zcur2)].max())
     # cb = colorbar()
     # cb.set_label(r'$z$')
     xlabel(r'$z$')   ;   ylabel(r'$n_{\rm p}$') 
@@ -299,7 +300,7 @@ def slew(t, z0, z, ay, bx, uy, uz, n, ctr, ddir = './', EyA = EyA, omega0 = omeg
     fig.set_size_inches(12.,6.)
     savefig(ddir + '/slewn{:05d}.png'.format(ctr))
 
-    close('all')
+    # close('all')
     
 def slew_eplot(tlist, mlist, emelist, paelist, omega0, ddir = './'):
     
@@ -700,7 +701,37 @@ def energies(hname, narr, zmin = 0.):
         yscale('log') # ; xscale('log')
         ylim(1e-4, 1.2)
         savefig('eensrat.png')
-     
+
+def energy_compare(dir1, dir2):
+    
+    lines1 = loadtxt(dir1+'/slew_energy.dat')
+    t1 = lines1[:,0] ;  m1 = lines1[:, 1] ; eem1 = lines1[:, 2] ; epa1 = lines1[:, 3]
+    lines2 = loadtxt(dir2+'/slew_energy.dat')
+    t2 = lines2[:,0] ;  m2 = lines2[:, 1] ; eem2 = lines2[:, 2] ; epa2 = lines2[:, 3]
+
+    show()
+    close('all')
+    clf()
+    fig, ax = subplots(ncols = 1, nrows=2, figsize=(4, 8))
+    ax[0].plot(t1, eem1, 'k--', label = dir1+': EM')
+    ax[0].plot(t2, eem2, 'r--', label = dir2+': EM')
+    #    ax[0].plot(t1, epa1, 'k:', label = dir1+': particles')
+    #    ax[0].plot(t2, epa2, 'r:', label = dir2+': particles')
+    ax[0].plot(t1, eem1+epa1, 'k-', label = dir1+': total')
+    ax[0].plot(t2, eem2+epa2, 'r-', label = dir2+': total')
+    emax = maximum((eem1+epa1).max(), (eem2+epa2).max())
+    ax[0].set_ylim(emax - maximum(epa1.max(), epa2.max())*3.0, emax+maximum(epa1.max(),epa2.max())*0.5)
+    # yscale('log')
+    ax[1].plot(t1, epa1, 'k:', label = dir1+': particles')
+    ax[1].plot(t2, epa2, 'r:', label = dir2+': particles')    
+    ax[0].set_xlabel(r'$t$') ;     ax[0].set_ylabel(r'$E$')
+    ax[1].set_xlabel(r'$t$')  ;     ax[1].set_ylabel(r'$E$')
+    ax[0].legend()
+    ax[0].set_title('EM energy')
+    ax[1].set_title('particle energy')
+    fig.tight_layout()
+    fig.savefig('energy_compare.png')
+    show()
 
 def test_monotonic_split():
 
