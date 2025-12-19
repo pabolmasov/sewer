@@ -6,6 +6,7 @@ from matplotlib import gridspec
 import os
 import sys
 import glob
+import gc # garbage collection
 
 import h5py
 
@@ -106,12 +107,12 @@ sclip = 0.1
 zeps = 0.1
 
 # background magnetic field
-Bxbgd = 0.0
+Bxbgd = 30.0
 Bybgd = 0.0
 Bzbgd = 0.0
 
 # drift in z direction
-uzdrift = 0.
+uzdrift = -0.01
 
 print(r"wave is resolved by a factor of \lambda / dz = ", 2.*pi / (omega0 * dz))
 print("a = ", EyA/omega0)
@@ -367,7 +368,7 @@ def dsteps(t, z, E, B, u, n0 = None, thetimer = None):
                 if wv.sum() > 0:
                     vindex = (zindices[wv]).max()
                 
-                if inindex < 0:
+                if False:
                     print("z init index = ", inindex)
                     print("z end index = ", vindex)
                     ii = input("indices")
@@ -729,6 +730,7 @@ def sewerrun(ddir = None):
                 thetimer.stats("io")
                 thetimer.comp_stats()
                 thetimer.purge_comps()           
+                gc.collect()
 
             ctr += 1
             
