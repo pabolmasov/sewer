@@ -13,22 +13,25 @@ namespace fs = std::filesystem;
 std::valarray<double> uniform(double, double, int);
 std::string namedir(void);
 
+// TODO: injection!!
+
 // boolean switches:
 bool ifMaxwell = true;
-bool ifmatter = true;
+bool ifmatter = false;
+bool ifadaptivedt = true;
 
 // globals:
-double acoeff = 30.;
-double omega = 10.;
-double Bxbgd = 100.;
+double acoeff = 5.;
+double omega = 40.;
+double Bxbgd = 5.;
 
 double n0 = 1.; // comoving density is everywhere just equal to 1
 
-double dtCFL = 0.1; // CFL factor
+double dtCFL = 0.1; // CFL factor TODO: adaptive step!!!
 double dtout = 0.1/omega;
 
-int nz = 2048;
-int numberofperiods = 3;
+int nz = 1024;
+int numberofperiods = 3, packpower = 12;
 double zlen = 2.*M_PI / omega * (double)numberofperiods; // assuming the BC are periodic, and the wavenumber fits the box "numberofperiods" times
 double zmin = -zlen/2., zmax = zlen/2.;
 double dz = zlen / (double)nz;
@@ -59,6 +62,21 @@ std::string namedir(void){
   std::cerr << "created\n";
   
   return s;
+}
+
+//
+std::valarray<double> zwrap(std::valarray<double> z){
+  std::valarray<double> znew = z;
+  double t;
+  
+  for (int k = 0; k<nz;k++){
+    if ((z[k] < zmin)||(z[k]>zmax)){
+      t = std::floor((z[k]-zmin)/zlen);
+      // t=0 if z is within the original z range
+      znew[k] = z[k] - t * zlen;
+    }
+  }
+  return znew;
 }
 
 // interpolating fields onto a non-regular grid
@@ -103,15 +121,28 @@ std::valarray<double> uniform(double x1, double x2, int nx){
 
 double Avec(double xi){
   if (tpack > 0.){
-    return acoeff * std::cos(omega * (xi+tstart)) * std::exp(-0.5 * ((xi+tstart)/tpack)*((xi+tstart)/tpack));
+    return acoeff * std::cos(omega * xi) * std::pow(std::cos(0.5 *omega/(double)numberofperiods * xi), (double)packpower);
+      // std::exp(-0.5 * ((xi+tstart)/tpack)*((xi+tstart)/tpack));
   }else{
     return acoeff * std::cos(omega * xi);
   }
 }
 
+std::valarray<double>  Avec(std::valarray<double>  xi){
+  if (tpack > 0.){
+    return acoeff * std::cos(omega * xi) * std::pow(std::cos(0.5 * omega/(double)numberofperiods * xi), (double)packpower);
+      // std::cos(omega * (xi+tstart)) * std::exp(-0.5 * ((xi+tstart)/tpack)*((xi+tstart)/tpack));
+  }else{
+    return acoeff * std::cos(omega * xi);
+  }
+}
+
+
 double Ey(double xi){ // Ey = - dAvec/dt
   if (tpack > 0.){
-    return acoeff * ((xi+tstart)/tpack/tpack * std::cos(omega * (xi+tstart))+omega * std::sin(omega * (xi+tstart))) * std::exp(-0.5 * ((xi+tstart)/tpack)*((xi+tstart)/tpack));
+    return acoeff * (std::sin(omega * xi) * std::pow(std::cos(0.5 * omega/(double)numberofperiods * xi), (double)packpower)
+		     + std::cos(omega * xi) * 0.5 * (double)packpower/(double)numberofperiods * std::pow(std::cos(0.5 * omega/(double)numberofperiods * xi), (double)packpower-1) * std::sin(0.5 * omega/(double)numberofperiods * xi));
+      // acoeff * ((xi+tstart)/tpack/tpack * std::cos(omega * (xi+tstart))+omega * std::sin(omega * (xi+tstart))) * std::exp(-0.5 * ((xi+tstart)/tpack)*((xi+tstart)/tpack));
   }else{
     return acoeff * omega * std::sin(omega * xi);
   }
@@ -120,20 +151,36 @@ double Ey(double xi){ // Ey = - dAvec/dt
 
 double Bx(double xi){ // Bx = - dAvec/dz
   if (tpack > 0.){
-    return - acoeff * ((xi+tstart)/tpack/tpack * std::cos(omega * (xi+tstart))+omega * std::sin(omega * (xi+tstart))) * std::exp(-0.5 * ((xi+tstart)/tpack)*((xi+tstart)/tpack)) + Bxbgd;
+    return -acoeff * (std::sin(omega * xi) * std::pow(std::cos(0.5 * omega/(double)numberofperiods * xi), (double)packpower)
+		     + std::cos(omega * xi) * 0.5 * (double)packpower/(double)numberofperiods * std::pow(std::cos(0.5 * omega/(double)numberofperiods * xi), (double)packpower-1) * std::sin(0.5 * omega/(double)numberofperiods * xi)) + Bxbgd;
+      //acoeff * ((xi+tstart)/tpack/tpack * std::cos(omega * (xi+tstart))+omega * std::sin(omega * (xi+tstart))) * std::exp(-0.5 * ((xi+tstart)/tpack)*((xi+tstart)/tpack)) + Bxbgd;
   }else{
-    return - acoeff * omega * std::sin(omega * xi) + Bxbgd;
+    return - acoeff * omega * std::sin(omega * xi);
   }
   //   return -acoeff * omega * std::sin(omega * xi) + Bxbgd;
 }
 
 // valarray fields
 std::valarray<double> Ey(std::valarray<double> xi){ // Ey = - dAvec/dt
-  return acoeff * omega * std::sin(omega * xi);
+  if (tpack > 0.){
+    return acoeff * (std::sin(omega * xi) * std::pow(std::cos(0.5 * omega/(double)numberofperiods * xi), (double)packpower)
+		     + std::cos(omega * xi) * 0.5 * (double)packpower/(double)numberofperiods * std::pow(std::cos(0.5 * omega/(double)numberofperiods * xi), (double)packpower-1) * std::sin(0.5 * omega/(double)numberofperiods * xi));
+      // acoeff * ((xi+tstart)/tpack/tpack * std::cos(omega * (xi+tstart))+omega * std::sin(omega * (xi+tstart))) * std::exp(-0.5 * ((xi+tstart)/tpack)*((xi+tstart)/tpack));
+  }else{
+    return acoeff * omega * std::sin(omega * xi);
+  }
+  //  return acoeff * omega * std::sin(omega * xi);
 }
 
 std::valarray<double> Bx(std::valarray<double> xi){ // Bx = - dAvec/dz
-  return -acoeff * omega * std::sin(omega * xi) + Bxbgd;
+  if (tpack > 0.){
+    return -acoeff * (std::sin(omega * xi) * std::pow(std::cos(0.5 * omega/(double)numberofperiods * xi), (double)packpower)
+		     + std::cos(omega * xi) * 0.5 * (double)packpower/(double)numberofperiods * std::pow(std::cos(0.5 * omega/(double)numberofperiods * xi), (double)packpower-1) * std::sin(0.5 * omega/(double)numberofperiods * xi));
+      // acoeff * ((xi+tstart)/tpack/tpack * std::cos(omega * (xi+tstart))+omega * std::sin(omega * (xi+tstart))) * std::exp(-0.5 * ((xi+tstart)/tpack)*((xi+tstart)/tpack));
+  }else{
+    return -acoeff * omega * std::sin(omega * xi);
+  }
+  // return -acoeff * omega * std::sin(omega * xi) + Bxbgd;
 }
 
 // setting initial fields:
@@ -166,22 +213,24 @@ double az(double uy, double uz, double z, double t){
   return - uy/gamma(uy, uz) * Bx(xi);
 }
 
-// accelerations for valarray arguments
-std::valarray<double> ay(std::valarray<double> uy,std::valarray<double>  uz, std::valarray<double> z, double t){
-return Ey(z-t) + uz/std::sqrt(1.+uy*uy+uz*uz) * Bx(z-t);
+// accelerations for valarray arguments (ifMaxwell = false)
+std::valarray<double> ay(std::valarray<double> uy, std::valarray<double>  uz, std::valarray<double> z, double t){
+  return Ey(z-t) + uz/std::sqrt(1.+uy*uy+uz*uz) * (Bx(z-t)+Bxbgd);
 }
 
-std::valarray<double> az(std::valarray<double> uy,std::valarray<double>  uz, std::valarray<double> z, double t){
-  return - uy/std::sqrt(1.+uy*uy+uz*uz) * Bx(z-t);
+std::valarray<double> az(std::valarray<double> uy, std::valarray<double>  uz, std::valarray<double> z, double t){
+  return - uy/std::sqrt(1.+uy*uy+uz*uz) * (Bx(z-t)+Bxbgd);
 }
 
-// accelerations for valarray arguments and arbitrary fields
+// accelerations for valarray arguments and arbitrary fields (ifMaxwell = true)
 std::valarray<double> ay_F(std::valarray<double> uy, std::valarray<double>  uz, std::valarray<double> z, double t, std::valarray<double> ear, std::valarray<double>  bar){
-  return fieldtoz(ear, z+dz/2.) + uz/std::sqrt(1.+uy*uy+uz*uz) * fieldtoz(bar,z);
+  // return ear + uz/std::sqrt(1.+uy*uy+uz*uz) * bar;
+  return fieldtoz(ear, z-dz/2.) + uz/std::sqrt(1.+uy*uy+uz*uz) * (fieldtoz(bar,z)+Bxbgd); 
 }
 
-std::valarray<double> az_F(std::valarray<double> uy,std::valarray<double>  uz, std::valarray<double> z, double t, std::valarray<double> bar){
-  return - uy/std::sqrt(1.+uy*uy+uz*uz) * fieldtoz(bar, z);
+std::valarray<double> az_F(std::valarray<double> uy, std::valarray<double>  uz, std::valarray<double> z, double t, std::valarray<double> bar){
+  // return  - uy/std::sqrt(1.+uy*uy+uz*uz) * bar;
+  return - uy/std::sqrt(1.+uy*uy+uz*uz) * (fieldtoz(bar, z)+Bxbgd);
 }
 
 // Maxwell equations
@@ -199,12 +248,12 @@ std::valarray<double> MaxE(std::valarray<double>  bar, std::valarray<double> vy,
       // kernel:
       double zc = z0[k]+dz/2.;
       // kernel = std::max(std::min(z-zc, zc-z)/dz +1.,0.);
-      kern = 1. - std::abs(z-zc);
+      kern = 1. - std::abs(zwrap(z)-zc);
       kern = (kern + std::abs(kern))/2. ;  // doing the same as the commented line above without pairwise min/max
       jy[k] = (n0 * vy * kern).sum(); // current in this particular point
     }
     
-    return (bar.cshift(1)-bar)/dz + jy; // with current
+    return (bar.cshift(1)-bar)/dz - jy; // with current
   }
 }
 
@@ -290,7 +339,7 @@ void maxout(double t, std::valarray<double> ear,  std::valarray<double> bar, int
   fout.open(s);
   fout << "# t z ear bar \n";
   for (int k  = 0 ; k < nz; k++){
-    fout << t << " " << z0[k] << " " << ear[k] << " " << bar[k] << "\n";    
+    fout << t << " " << z0[k] * omega / (2.*M_PI) << " " << ear[k] << " " << bar[k]+Bxbgd << "\n";    
   }
   fout.close();
   // std::cout << "fields written to " << s << "\n";
@@ -298,7 +347,7 @@ void maxout(double t, std::valarray<double> ear,  std::valarray<double> bar, int
 
 void onemesh(std::valarray<double> z){
   double t = 0., dt = 1e-2 * std::min(1./omega, 1./std::max(acoeff * omega, Bxbgd)),
-    tmax = std::max(30. * acoeff / omega, 3.*tstart), tstore = 0. ;
+    tmax = std::max(100. * acoeff / omega, 3.*tstart), tstore = 0. ;
 
   // dt selection
   std::cout << "omega cycle is " << 2. * M_PI / omega << "\n";
@@ -309,6 +358,9 @@ void onemesh(std::valarray<double> z){
 
   std::valarray<double> uz = uniform(0., 0., nz);
   std::valarray<double> uy = uniform(0., 0., nz);
+
+  uy = Avec(z);
+  uz = uy*uy/2.;
 
   std::valarray<double> thegamma = uniform(0., 0., nz);
   std::valarray<double> vy = uniform(0., 0., nz);
@@ -344,6 +396,7 @@ void onemesh(std::valarray<double> z){
   // }
   
   int ctr = 0;
+  double adt = 0.;
   
   std::cout << "#  t  z  uy  uz\n";
   
@@ -358,6 +411,11 @@ void onemesh(std::valarray<double> z){
       vy = uy/thegamma;
       dear1 = MaxE(bar, vy, z);
       dbar1 = MaxB(ear);
+
+      if(ifadaptivedt){
+	adt = 1./std::max(ay1.max(), az1.max());
+	dt = std::min( std::min(dtCFL * dz, 0.01 / omega), 0.1*adt);
+      }
       az2 = az_F(uy+ay1*dt/2., uz+az1*dt/2., z+dz1*dt/2., t+dt/2., bar+dbar1*dt/2.); 
       ay2 = ay_F(uy+ay1*dt/2., uz+az1*dt/2., z+dz1*dt/2., t+dt/2., ear+dear1*dt/2., bar+dbar1*dt/2.);
       thegamma = gamma(uy+ay1*dt/2., uz+az1*dt/2.);
@@ -384,6 +442,10 @@ void onemesh(std::valarray<double> z){
       az1 = az(uy, uz, z, t); 
       ay1 = ay(uy, uz, z, t);
       dz1 = uz/gamma(uy, uz);
+      if(ifadaptivedt){
+	adt = 1./std::max(ay1.max(), az1.max());
+	dt = std::min( std::min(dtCFL * dz, 0.01 / omega), 0.1*adt);
+      }
       az2 = az(uy+ay1*dt/2., uz+az1*dt/2., z+dz1*dt/2., t+dt/2.); 
       ay2 = ay(uy+ay1*dt/2., uz+az1*dt/2., z+dz1*dt/2., t+dt/2.);
       dz2 = (uz+az1*dt/2.)/gamma(uy+ay1*dt/2., uz+az1*dt/2.);
@@ -398,7 +460,7 @@ void onemesh(std::valarray<double> z){
     // advance:
     uz += (az1 + 2. * az2 + 2. * az3 + az4) * dt / 6.;
     uy += (ay1 + 2. * ay2 + 2. * ay3 + ay4) * dt / 6.;
-    z += (dz1 + 2. * dz2 + 2. * dz3 + dz4) * dt / 6.;
+    z += (dz1 + 2. * dz2 + 2. * dz3 + dz4) * dt / 6.; 
     t += dt;
     
     if (ifMaxwell){ // updating fields
@@ -409,7 +471,11 @@ void onemesh(std::valarray<double> z){
     // printout:
     if (t > tstore){
       if (ctr%10 == 0){
-	std::cerr << " omega t / (2 pi) = " << omega * t / (2. * M_PI) << "\n";
+	std::cerr << ctr << ": omega t / (2 pi) = " << omega * t / (2. * M_PI) << "\n";
+	if (ifadaptivedt){
+	  std::cerr << "dt = " << dt << "\n";
+	  std::cerr << "  dt(CFL) = " << dtCFL*dz << "\n";
+	}
       }
       maxout(omega * t / (2. * M_PI), ear, bar, ctr);
       ascout(omega * t / (2. * M_PI), omega * z / (2. * M_PI), uy, uz, ctr);
@@ -421,6 +487,8 @@ void onemesh(std::valarray<double> z){
 
  
 int main(){
+  // std::cout << std::fmod(5., 2.) << "\n";
+  // std::cout << std::fmod(-5., 2.) << "\n";
   // std::cout << (-5 % 7) << "\n";
   // std::cout << std::fmod(-5, 7) << "\n";
   // getchar();
